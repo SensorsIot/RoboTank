@@ -2,6 +2,8 @@
    Robo Tank Remote controller
    Based on Master example of ESP_now
 
+   Analog Pins VP and VN
+
    Andreas Spiess (2018)
 
 */
