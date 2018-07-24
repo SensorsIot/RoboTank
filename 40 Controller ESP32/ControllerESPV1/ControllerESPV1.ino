@@ -5,13 +5,20 @@
 
    Andreas Spiess (2018)
 
+
+   Attention: The telemetry channel from the controller to the remote does not work yet.
+
 */
 
 #include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <GlobalDefinitions.h>
 
 #define CHANNEL 1
+
+unsigned long entry;
+byte masterMAC[6];
 
 // Init ESP Now with fallback
 void InitESPNow() {
@@ -39,6 +46,74 @@ void configDeviceAP() {
   }
 }
 
+void sendData(byte *peer_addr) {
+  uint8_t commandJSON[COMMANDLENGTH];
+  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  root["battery"] = telemetry.batteryVoltage;
+  char jsonChar[COMMANDLENGTH];
+  root.printTo(jsonChar, COMMANDLENGTH);
+  root.printTo(Serial);
+  Serial.println();
+  memcpy(commandJSON, jsonChar, sizeof(jsonChar));
+  int JSONlen = 0;
+  while (commandJSON[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 1) JSONlen++; // find end of JSON string
+  Serial.println(JSONlen);
+  esp_err_t result = esp_now_send(peer_addr, commandJSON, JSONlen + 1);
+  Serial.print("Send Status: ");
+  if (result == ESP_OK) {
+    Serial.println("Success");
+  } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
+    // How did we get so far!!
+    Serial.println("ESPNOW not Init.");
+  } else if (result == ESP_ERR_ESPNOW_ARG) {
+    Serial.println("Invalid Argument");
+  } else if (result == ESP_ERR_ESPNOW_INTERNAL) {
+    Serial.println("Internal Error");
+  } else if (result == ESP_ERR_ESPNOW_NO_MEM) {
+    Serial.println("ESP_ERR_ESPNOW_NO_MEM");
+  } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
+    Serial.println("Peer not found.");
+  } else {
+    Serial.println("Not sure what happened");
+  }
+  delay(50);
+}
+
+// callback when data is recv from Master
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len) {
+  char macStr[18];
+  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  JsonObject& root = jsonBuffer.parseObject(json);
+  for (int i = 0; i < 6; i++) masterMAC[i] = mac_addr[i];
+
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+           masterMAC[0], masterMAC[1], masterMAC[2], masterMAC[3], masterMAC[4], masterMAC[5]);
+ // Serial.print("Last Packet Recv from: ");
+ // Serial.println(macStr);
+
+  if (!root.success()) {
+    Serial.println("parseObject() failed");
+  } else {
+    int roboSpeed = root["speed"];
+    int roboAngle = root["angle"];
+    float roboBattery = root["battery"];
+    Serial.print(roboSpeed);
+    Serial.print(",");
+    Serial.println(roboAngle);
+  }
+}
+
+// callback when data is sent from Master to Slave
+void OnDataSent(const uint8_t *mac_addr1, esp_now_send_status_t status) {
+  char macStr[18];
+ // snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+ //          mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+ // Serial.print("Last Packet Sent to: "); Serial.println(macStr);
+  Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+
 void setup() {
   Serial.begin(115200);
   Serial.println("ESPNow/Basic/Slave Example");
@@ -55,35 +130,14 @@ void setup() {
   esp_now_register_recv_cb(OnDataRecv);
 }
 
-// callback when data is recv from Master
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len) {
-  char macStr[18];
-  // char json[] =     "{\"speed\":10,\"angle\":-90}";
-
-  StaticJsonBuffer<250> jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(json);
-
-  // Test if parsing succeeds.
-  if (!root.success()) {
-    Serial.println("parseObject() failed");
-  } else {
-
-    /*  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-               mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-      Serial.print("Last Packet Recv from: ");
-      Serial.println(macStr);
-      Serial.print("Last Packet Recv Data: ");
-      serializeJson(doc, Serial);
-      Serial.println();
-    */
-    int roboSpeed = root["speed"];
-    int roboAngle = root["angle"];
-    Serial.print(roboSpeed);
-    Serial.print(",");
-    Serial.println(roboAngle);
-  }
-}
-
 void loop() {
-  // Chill
+/* if (millis() > entry + 1000) {
+    Serial.print("Sending ");
+    telemetry.batteryVoltage = 10.6;
+    for (int i = 0; i < 6; i++) Serial.println(masterMAC[i], HEX);
+
+   sendData(masterMAC);
+    entry = millis();
+  }
+*/
 }

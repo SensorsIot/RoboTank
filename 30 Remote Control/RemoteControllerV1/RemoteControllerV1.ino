@@ -6,22 +6,20 @@
 
    Andreas Spiess (2018)
 
+   Attention: The telemetry channel from the controller to the remote does not work yet.
+
 */
 
 #include <esp_now.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
-
-// Global copy of slave
-#define NUMSLAVES 20
-esp_now_peer_info_t slaves[NUMSLAVES] = {};
-int SlaveCnt = 0;
+#include <GlobalDefinitions.h>
 
 #define CHANNEL 3
 #define PRINTSCANRESULTS 0
 
-uint8_t commandJSON[250];
-int roboSpeed, roboAngle;
+float roboBattery;
+uint8_t peer_addr[6];
 
 // Init ESP Now with fallback
 void InitESPNow() {
@@ -32,9 +30,8 @@ void InitESPNow() {
   else {
     Serial.println("ESPNow Init Failed");
     // Retry InitESPNow, add a counte and then restart?
-    // InitESPNow();
-    // or Simply Restart
-    ESP.restart();
+    InitESPNow();
+    esp_now_register_recv_cb(OnDataRecv);
   }
 }
 
@@ -76,6 +73,7 @@ void ScanForSlave() {
         SlaveCnt++;
       }
     }
+    //   *peer_addr = slaves[0].peer_addr;
   }
 
   if (SlaveCnt > 0) {
@@ -135,25 +133,36 @@ void manageSlave() {
   }
 }
 
-// send data
-void sendData() {
-  StaticJsonBuffer<250> jsonBuffer;
-  JsonObject& root = jsonBuffer.createObject();
-  root["speed"] = roboSpeed;
-  root["angle"] = roboAngle;
-  char jsonChar[100];
-  root.printTo(jsonChar, sizeof(jsonChar));
-  memcpy(commandJSON, jsonChar, sizeof(jsonChar));
+void readJoyStick() {
+  command.speed = analogRead(36);
+  command.angle = analogRead(39);
+  /* Serial.print(command.speed);
+    Serial.print(",");
+    Serial.println(command.angle);
+  */
+}
 
+void sendData(byte *peer_addr) {
+  uint8_t commandJSON[COMMANDLENGTH];
+  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  root["speed"] = command.speed;
+  root["angle"] = command.angle;
+  char jsonChar[COMMANDLENGTH];
+  root.printTo(jsonChar, COMMANDLENGTH);
+  //  root.printTo(Serial);
+  memcpy(commandJSON, jsonChar, sizeof(jsonChar));
+  int JSONlen = 0;
+  while (commandJSON[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 1) JSONlen++; // find end of JSON string
   for (int i = 0; i < SlaveCnt; i++) {
-    const uint8_t *peer_addr = slaves[i].peer_addr;
+    //    const uint8_t *peer_addr = slaves[i].peer_addr;
     if (i == 0) { // print only for first slave
-     // Serial.print("Sending: ");
+      // Serial.print("Sending: ");
     }
-    esp_err_t result = esp_now_send(peer_addr, commandJSON, sizeof(commandJSON));
-   // Serial.print("Send Status: ");
+    esp_err_t result = esp_now_send(peer_addr, commandJSON, JSONlen + 1);
+    // Serial.print("Send Status: ");
     if (result == ESP_OK) {
-   //   Serial.println("Success");
+      //   Serial.println("Success");
     } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
       // How did we get so far!!
       Serial.println("ESPNOW not Init.");
@@ -172,22 +181,34 @@ void sendData() {
   delay(50);
 }
 
+// callback when data is recv from Slave
+void OnDataRecv(const uint8_t *slave_peer_addr, const uint8_t *json, int data_len) {
+  char macStr[18];
+  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  JsonObject& root = jsonBuffer.parseObject(json);
+  // snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+  //          mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+  // Serial.print("Last Packet Recv from: ");
+  // Serial.println(macStr);
+
+  if (!root.success()) {
+    Serial.println("parseObject() failed");
+  } else {
+    roboBattery = root["battery"];
+    Serial.println("Received ");
+    Serial.print(roboBattery);
+  }
+}
+
 // callback when data is sent from Master to Slave
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-//  Serial.print("Last Packet Sent to: "); Serial.println(macStr);
-//  Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  //  Serial.print("Last Packet Sent to: "); Serial.println(macStr);
+  //  Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void readJoyStick() {
-  roboSpeed = analogRead(36);
-  roboAngle = analogRead(39);
-  Serial.print(roboSpeed);
-  Serial.print(",");
-  Serial.println(roboAngle);
-}
 
 void setup() {
   Serial.begin(115200);
@@ -198,6 +219,7 @@ void setup() {
   Serial.println("ESPNow/Multi-Slave/Master Example");
   // This is the mac address of the Master in Station Mode
   Serial.print("STA MAC: "); Serial.println(WiFi.macAddress());
+
   // Init ESPNow with a fallback logic
   InitESPNow();
   // Once ESPNow is successfully Init, we will register for Send CB to
@@ -217,10 +239,10 @@ void setup() {
   } else {
     // No slave found to process
   }
+  esp_now_register_recv_cb(OnDataRecv);
 }
 
 void loop() {
-
   readJoyStick();
-  sendData();
+  sendData(slaves[0].peer_addr);
 }
