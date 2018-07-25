@@ -1,4 +1,4 @@
-/**
+dd/**
    /*
    Robo Tank controller
    Based on Slave example of ESP_now
@@ -104,15 +104,6 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len) {
     int roboSpeed = root["speed"];
     int roboAngle = root["angle"];
 
-    roboSpeed -= SPEED_CORRECT;
-    roboAngle -= ANGLE_CORRECT;
-
-    roboSpeed = map(roboSpeed,0,511,-255,255);
-    roboAngle = map(roboAngle,0,511,-180,180);
-    
-    roboSpeed < 2 && roboSpeed > -2 ? roboSpeed = 0 : roboSpeed;
-    roboAngle < 2 && roboAngle > -2 ? roboAngle = 0 : roboAngle;
-    
     float roboBattery = root["battery"];
     
     Serial.print(roboSpeed);
