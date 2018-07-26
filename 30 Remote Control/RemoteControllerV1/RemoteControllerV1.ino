@@ -17,8 +17,25 @@
 #include <ArduinoJson.h>
 #include <GlobalDefinitions.h>
 
+#include <Wire.h>
+#include <SSD1306.h>
+
+SSD1306 display(0x3c, 21,22);
+
 #define CHANNEL 3
 #define PRINTSCANRESULTS 0
+
+int xmax = 0;
+int xmin = 511;
+int xzero;
+int ymax = 0;
+int ymin = 511;
+int yzero;
+
+int roboSpeed;
+int roboAngle;
+
+unsigned long lastDisplay = 0;
 
 float roboBattery;
 uint8_t peer_addr[6];
@@ -136,12 +153,80 @@ void manageSlave() {
 }
 
 void readJoyStick() {
-  command.speed = analogRead(36);
-  command.angle = analogRead(39);
+  int rawSpeed = analogRead(36);
+  int rawAngle = analogRead(39);
+
+  if(rawSpeed < yzero - 5){
+    roboSpeed = map(rawSpeed,ymin,yzero,-255,0);
+  } else if(rawSpeed > yzero - 5 && rawSpeed < yzero + 5){
+    roboSpeed = 0;
+  } else if(rawSpeed > yzero + 5){
+    roboSpeed = map(rawSpeed,yzero,ymax,0,255);
+  }
+
+  if(rawAngle < xzero - 5){
+    roboAngle = map(rawAngle,xmin,xzero,-180,0);
+  } else if(rawAngle > xzero - 5 && rawAngle < xzero + 5){
+    roboAngle = 0;
+  } else if(rawAngle > xzero + 5){
+    roboAngle = map(rawAngle,xzero,xmax,0,180);
+  }
+
+  command.speed = roboSpeed;
+  command.angle = roboAngle;
   /* Serial.print(command.speed);
     Serial.print(",");
     Serial.println(command.angle);
   */
+}
+
+void calibrate(){
+  display.drawString(0,0,"Starting \nCalibration!");
+  display.display();
+  delay(500);
+  display.clear();
+  display.drawString(0,0,"Move Joystick\nthrough outermost\ncircle!");
+  display.display();
+  unsigned long start = millis();
+  int y;
+  int x;
+  while(millis() - start < 5000){
+    y = analogRead(36);
+    x = analogRead(39);
+
+    y > ymax ? ymax = y : ymax;
+    y < ymin ? ymin = y : ymin;
+
+    x > xmax ? xmax = x : xmax;
+    x < xmin ? xmin = x : xmin;
+  }
+  display.clear();
+  display.drawString(0,0,"Release Joystick\nand WAIT!");
+  display.display();
+  delay(4000);
+  xzero = analogRead(39);
+  yzero = analogRead(36);
+  display.clear();
+  display.drawString(0,0,"Calibration\nDONE!");
+  display.display();
+
+  Serial.print("XMAX:");Serial.println(xmax);
+  Serial.print("XMIN:");Serial.println(xmin);
+  Serial.print("YMAX:");Serial.println(ymax);
+  Serial.print("YMIN:");Serial.println(ymin);
+  Serial.print("XZERO:");Serial.println(xzero);
+  Serial.print("YZERO:");Serial.println(yzero);
+  
+  delay(1000);
+}
+
+void displaySpeedAngle(){
+  display.clear();
+  display.drawString(0,0,"Speed:");
+  display.drawString(0,16,"Angle:");
+  display.drawString(55,0, String(roboSpeed));
+  display.drawString(55,16, String(roboAngle));
+  display.display();
 }
 
 void sendData(byte *peer_addr) {
@@ -216,6 +301,12 @@ void setup() {
   Serial.begin(115200);
   analogReadResolution(9);  // 9 bit resolution for the joystick is enough
 
+  display.init();
+  display.setFont(ArialMT_Plain_16);
+  display.flipScreenVertically();
+  display.display();
+  calibrate();
+
   //Set device in STA mode to begin with
   WiFi.mode(WIFI_STA);
   Serial.println("ESPNow/Multi-Slave/Master Example");
@@ -247,4 +338,9 @@ void setup() {
 void loop() {
   readJoyStick();
   sendData(slaves[0].peer_addr);
+
+  if(millis() - lastDisplay > 50){
+    displaySpeedAngle();
+    lastDisplay = millis();
+  }
 }
