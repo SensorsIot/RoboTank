@@ -8,6 +8,8 @@
 
    Attention: The telemetry channel from the controller to the remote does not work yet.
 
+   !!!!!!!!!!! Please use ArduinoJson Library 5.13, not 6.xx beta
+
 */
 
 #include <esp_now.h>
