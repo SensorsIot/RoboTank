@@ -16,15 +16,18 @@
 #include <WiFi.h>
 #include <GlobalDefinitions.h>
 
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Wire.h>
+#include <SSD1306.h>
 
 #define CHANNEL 1
+
+int roboSpeed;
+int roboAngle;
 
 unsigned long entry;
 byte masterMAC[6];
 
-Adafruit_SSD1306 display = Adafruit_SSD1306();
+SSD1306 display(0x3c, 21,22);
 
 unsigned long lastDisplay = 0;
 
@@ -103,25 +106,14 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len) {
   if (!root.success()) {
     Serial.println("parseObject() failed");
   } else {
-    int roboSpeed = root["speed"];
-    int roboAngle = root["angle"];
+    roboSpeed = root["speed"];
+    roboAngle = root["angle"];
 
     float roboBattery = root["battery"];
     
     Serial.print(roboSpeed);
     Serial.print(",");
     Serial.println(roboAngle);
-
-    if(millis() - lastDisplay > 1000){
-      display.setCursor(42,0);
-      display.print(roboSpeed);
-      display.print("   ");
-      display.setCursor(42,8);
-      display.print(roboAngle);
-      display.print("   ");
-      display.display();
-      lastDisplay = millis();
-    }
   }
 }
 
@@ -134,6 +126,14 @@ void OnDataSent(const uint8_t *mac_addr1, esp_now_send_status_t status) {
   Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
+void displaySpeedAngle(){
+  display.clear();
+  display.drawString(0,0,"Speed:");
+  display.drawString(0,16,"Angle:");
+  display.drawString(55,0, String(roboSpeed));
+  display.drawString(55,16, String(roboAngle));
+  display.display();
+}
 
 void setup() {
   Serial.begin(115200);
@@ -150,13 +150,9 @@ void setup() {
   // get recv packer info.
   esp_now_register_recv_cb(OnDataRecv);
 
-  display.begin(SSD1306_SWITCHCAPVCC,0x3C);
-  display.setTextSize(1);
-  display.setTextColor(WHITE, BLACK);
-  display.setCursor(0,0);
-  display.clearDisplay();
-  display.println("Speed:");
-  display.println("Angle:");
+  display.init();
+  display.setFont(ArialMT_Plain_16);
+  display.flipScreenVertically();
   display.display();
 }
 
@@ -170,4 +166,9 @@ void loop() {
     entry = millis();
   }
 */
+
+  if(millis() - lastDisplay > 50){
+      displaySpeedAngle();
+      lastDisplay = millis();
+  }
 }
