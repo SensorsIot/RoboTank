@@ -8,6 +8,8 @@
 
    Attention: The telemetry channel from the controller to the remote does not work yet.
 
+   !!!!!!!!!!! Please use ArduinoJson Library 5.13, not 6.xx beta
+
 */
 #include <ArduinoJson.h>
 #include <esp_now.h>
@@ -155,7 +157,7 @@ void setup() {
 }
 
 void loop() {
-/* if (millis() > entry + 1000) {
+ /* if (millis() > entry + 1000) {
     Serial.print("Sending ");
     telemetry.batteryVoltage = 10.6;
     for (int i = 0; i < 6; i++) Serial.println(masterMAC[i], HEX);
