@@ -11,16 +11,22 @@
    !!!!!!!!!!! Please use ArduinoJson Library 5.13, not 6.xx beta
 
 */
-
 #include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
 #include <GlobalDefinitions.h>
 
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
 #define CHANNEL 1
 
 unsigned long entry;
 byte masterMAC[6];
+
+Adafruit_SSD1306 display = Adafruit_SSD1306();
+
+unsigned long lastDisplay = 0;
 
 // Init ESP Now with fallback
 void InitESPNow() {
@@ -99,10 +105,23 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len) {
   } else {
     int roboSpeed = root["speed"];
     int roboAngle = root["angle"];
+
     float roboBattery = root["battery"];
+    
     Serial.print(roboSpeed);
     Serial.print(",");
     Serial.println(roboAngle);
+
+    if(millis() - lastDisplay > 1000){
+      display.setCursor(42,0);
+      display.print(roboSpeed);
+      display.print("   ");
+      display.setCursor(42,8);
+      display.print(roboAngle);
+      display.print("   ");
+      display.display();
+      lastDisplay = millis();
+    }
   }
 }
 
@@ -130,6 +149,15 @@ void setup() {
   // Once ESPNow is successfully Init, we will register for recv CB to
   // get recv packer info.
   esp_now_register_recv_cb(OnDataRecv);
+
+  display.begin(SSD1306_SWITCHCAPVCC,0x3C);
+  display.setTextSize(1);
+  display.setTextColor(WHITE, BLACK);
+  display.setCursor(0,0);
+  display.clearDisplay();
+  display.println("Speed:");
+  display.println("Angle:");
+  display.display();
 }
 
 void loop() {
