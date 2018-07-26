@@ -21,9 +21,6 @@
 
 #define CHANNEL 1
 
-#define SPEED_CORRECT 0
-#define ANGLE_CORRECT 0 
-
 int roboSpeed;
 int roboAngle;
 
