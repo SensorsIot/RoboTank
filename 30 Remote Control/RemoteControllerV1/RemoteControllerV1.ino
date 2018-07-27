@@ -24,6 +24,7 @@ VCC : 3.3V
 Speed: VP (39)
 Angle: VN (36)
 
+Further info is in the GitHub documentation.
 
 */
 
@@ -196,6 +197,7 @@ void readJoyStick() {
 }
 
 void calibrateJoystick(){
+  display.clear();
   display.drawString(0,0,"Starting \nCalibration!");
   display.display();
   delay(500);
@@ -205,6 +207,11 @@ void calibrateJoystick(){
   unsigned long start = millis();
   int y;
   int x;
+
+  //Values for calibration sucess check
+  int xInit = analogRead(39);
+  int yInit = analogRead(36);
+ 
   while(millis() - start < 5000){
     y = analogRead(36);
     x = analogRead(39);
@@ -215,24 +222,35 @@ void calibrateJoystick(){
     x > xmax ? xmax = x : xmax;
     x < xmin ? xmin = x : xmin;
   }
-  display.clear();
-  display.drawString(0,0,"Release Joystick\nand WAIT!");
-  display.display();
-  delay(4000);
-  xzero = analogRead(39);
-  yzero = analogRead(36);
-  display.clear();
-  display.drawString(0,0,"Calibration\nDONE!");
-  display.display();
 
-  Serial.print("XMAX:");Serial.println(xmax);
-  Serial.print("XMIN:");Serial.println(xmin);
-  Serial.print("YMAX:");Serial.println(ymax);
-  Serial.print("YMIN:");Serial.println(ymin);
-  Serial.print("XZERO:");Serial.println(xzero);
-  Serial.print("YZERO:");Serial.println(yzero);
-  
-  delay(1000);
+
+  //Check for success
+  if(xmax - xInit > 110 && xInit - xmin > 110 && ymax - yInit > 110 && yInit - ymin > 110){
+    display.clear();
+    display.drawString(0,0,"Release Joystick\nand WAIT!");
+    display.display();
+    delay(4000);
+    xzero = analogRead(39);
+    yzero = analogRead(36);
+    display.clear();
+    display.drawString(0,0,"Calibration\nDONE!");
+    display.display();
+
+    Serial.print("XMAX:");Serial.println(xmax);
+    Serial.print("XMIN:");Serial.println(xmin);
+    Serial.print("YMAX:");Serial.println(ymax);
+    Serial.print("YMIN:");Serial.println(ymin);
+    Serial.print("XZERO:");Serial.println(xzero);
+    Serial.print("YZERO:");Serial.println(yzero);
+    
+    delay(1000);
+  } else {
+    display.clear();
+    display.drawString(0,0,"Calibration\nfailed. Trying\nagain.");
+    display.display();
+    delay(1000);
+    calibrateJoystick();
+  }
 }
 
 void displaySpeedAngle(){
