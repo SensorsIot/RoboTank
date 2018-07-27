@@ -1,6 +1,6 @@
 # RoboTank
 
-This is the Repo of our Summer Project, introducted [in this video](https://youtu.be/tjFopEwtp18
+This is the Repo of our Summer Project, introduced [in this video](https://youtu.be/tjFopEwtp18
 )
 
 
