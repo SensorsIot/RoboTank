@@ -10,6 +10,21 @@
 
    !!!!!!!!!!! Please use ArduinoJson Library 5.13, not 6.xx beta
 
+
+Connections:
+OLED 
+GND : GND
+VCC : 3.3V
+SCL : 22
+SDA : 21
+
+Joystick
+GND : GND
+VCC : 3.3V
+Speed: VP (39)
+Angle: VN (36)
+
+
 */
 
 #include <esp_now.h>
@@ -180,7 +195,7 @@ void readJoyStick() {
   */
 }
 
-void calibrate(){
+void calibrateJoystick(){
   display.drawString(0,0,"Starting \nCalibration!");
   display.display();
   delay(500);
@@ -305,7 +320,7 @@ void setup() {
   display.setFont(ArialMT_Plain_16);
   display.flipScreenVertically();
   display.display();
-  calibrate();
+  calibrateJoystick();
 
   //Set device in STA mode to begin with
   WiFi.mode(WIFI_STA);
