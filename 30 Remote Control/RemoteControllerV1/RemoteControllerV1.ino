@@ -49,12 +49,12 @@ SSD1306 display(0x3c, 21,22);
 
 
 struct calibrationStruct{
-  int magicNumber;//'Magic Number - To check to see if the calibration has been performed'
-  int xmax;
-  int xmin;
+  int magicNumber = MAGIC_NUMBER;//'Magic Number - To check to see if the calibration has been performed'
+  int xmax = 0;
+  int xmin = 511;
   int xzero;
-  int ymax;
-  int ymin;
+  int ymax = 0;
+  int ymin = 511;
   int yzero;
 };
 calibrationStruct calibration;
@@ -63,6 +63,7 @@ int roboSpeed;
 int roboAngle;
 
 unsigned long lastDisplay = 0;
+unsigned long pressStart = 0;
 
 float roboBattery;
 uint8_t peer_addr[6];
@@ -208,6 +209,7 @@ void readJoyStick() {
 }
 
 void calibrateJoystick(){
+  calibrationStruct recalibration; //Create new struct variable, otherwise input validation won't work.
   display.clear();
   display.drawString(0,0,"Starting \nCalibration!");
   display.display();
@@ -227,34 +229,34 @@ void calibrateJoystick(){
     y = analogRead(36);
     x = analogRead(39);
 
-    y > calibration.ymax ? calibration.ymax = y : calibration.ymax;
-    y < calibration.ymin ? calibration.ymin = y : calibration.ymin;
+    y > recalibration.ymax ? recalibration.ymax = y : recalibration.ymax;
+    y < recalibration.ymin ? recalibration.ymin = y : recalibration.ymin;
 
-    x > calibration.xmax ? calibration.xmax = x : calibration.xmax;
-    x < calibration.xmin ? calibration.xmin = x : calibration.xmin;
+    x > recalibration.xmax ? recalibration.xmax = x : recalibration.xmax;
+    x < recalibration.xmin ? recalibration.xmin = x : recalibration.xmin;
   }
 
 
   //Check for success
-  if(calibration.xmax - xInit > 110 && xInit - calibration.xmin > 110 && calibration.ymax - yInit > 110 && yInit - calibration.ymin > 110){
+  if(recalibration.xmax - xInit > 110 && xInit - recalibration.xmin > 110 && recalibration.ymax - yInit > 110 && yInit - recalibration.ymin > 110){
     display.clear();
     display.drawString(0,0,"Release Joystick\nand WAIT!");
     display.display();
     delay(4000);
-    calibration.xzero = analogRead(39);
-    calibration.yzero = analogRead(36);
+    recalibration.xzero = analogRead(39);
+    recalibration.yzero = analogRead(36);
     display.clear();
     display.drawString(0,0,"Calibration\nDONE!");
     display.display();
 
-    Serial.print("XMAX:");Serial.println(calibration.xmax);
-    Serial.print("XMIN:");Serial.println(calibration.xmin);
-    Serial.print("YMAX:");Serial.println(calibration.ymax);
-    Serial.print("YMIN:");Serial.println(calibration.ymin);
-    Serial.print("XZERO:");Serial.println(calibration.xzero);
-    Serial.print("YZERO:");Serial.println(calibration.yzero);
+    Serial.print("XMAX:");Serial.println(recalibration.xmax);
+    Serial.print("XMIN:");Serial.println(recalibration.xmin);
+    Serial.print("YMAX:");Serial.println(recalibration.ymax);
+    Serial.print("YMIN:");Serial.println(recalibration.ymin);
+    Serial.print("XZERO:");Serial.println(recalibration.xzero);
+    Serial.print("YZERO:");Serial.println(recalibration.yzero);
 
-    EEPROM.put(0,calibration);
+    EEPROM.put(0,recalibration);
   
     delay(1000);
   } else {
@@ -264,8 +266,7 @@ void calibrateJoystick(){
     delay(1000);
     calibrateJoystick();
   }
-
-  EEPROM.writeInt(0,calibration.magicNumber);
+  calibration = recalibration;
   EEPROM.commit();
 }
 
@@ -412,9 +413,23 @@ void setup() {
 void loop() {
   readJoyStick();
   sendData(slaves[0].peer_addr);
-
-  if(!digitalRead(RECALIBRATION_PIN)){calibrateJoystick();}
-
+  if(!digitalRead(RECALIBRATION_PIN)){
+    bool pressed = true;
+    pressStart = millis();
+    display.clear();
+    display.drawString(0,0,"Hold to\nrecalibrate!");
+    display.display();
+    int i=0;
+    while(millis() - pressStart < 3000){
+      if(digitalRead(RECALIBRATION_PIN)){
+        pressed = false;
+        break;
+      }
+    }
+    if(pressed = true && !digitalRead(RECALIBRATION_PIN)){
+      calibrateJoystick();
+    }
+  }
   if(millis() - lastDisplay > 50){
     displaySpeedAngle();
     lastDisplay = millis();
