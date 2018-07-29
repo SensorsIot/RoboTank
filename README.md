@@ -19,7 +19,7 @@ A "globalDefinitions.h file is in the Misc directory. It has to be copied to the
     * Moving forward, the remote controller will have another joystick, and have a nice 3D printed case.
 * A small OLED will be integrated into the remote controller:
     * Display Speed / Angle values (**completed**: displays values selected by joystick)
-    * Display RoboTank and remote controller battery voltages
+    * Display RoboTank and remote controller battery voltages *(Waiting for battery decision)*
     * Display calibration prompts (**completed**)
     * *Display a menu system for different features of the tank. (**long term**)*
 

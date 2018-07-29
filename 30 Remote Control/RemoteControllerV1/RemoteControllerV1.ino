@@ -24,6 +24,8 @@ VCC : 3.3V
 Speed: VP (39)
 Angle: VN (36)
 
+To recalibrate: connect 27 to ground!
+
 Further info is in the GitHub documentation.
 
 */
@@ -35,11 +37,14 @@ Further info is in the GitHub documentation.
 
 #include <Wire.h>
 #include <SSD1306.h>
+#include <EEPROM.h>
 
 SSD1306 display(0x3c, 21,22);
 
 #define CHANNEL 3
 #define PRINTSCANRESULTS 0
+#define EEPROM_SIZE 64
+#define RECALIBRATION_PIN 27
 
 int xmax = 0;
 int xmin = 511;
@@ -242,7 +247,16 @@ void calibrateJoystick(){
     Serial.print("YMIN:");Serial.println(ymin);
     Serial.print("XZERO:");Serial.println(xzero);
     Serial.print("YZERO:");Serial.println(yzero);
-    
+
+    EEPROM.writeShort(1,xmax);
+    EEPROM.writeShort(3,xmin);
+    EEPROM.writeShort(5,ymax);
+    EEPROM.writeShort(7,ymin);
+    EEPROM.writeShort(9,xzero);
+    EEPROM.writeShort(11,yzero);
+  
+
+
     delay(1000);
   } else {
     display.clear();
@@ -251,6 +265,10 @@ void calibrateJoystick(){
     delay(1000);
     calibrateJoystick();
   }
+
+  EEPROM.writeBool(0,1);
+
+  EEPROM.commit();
 }
 
 void displaySpeedAngle(){
@@ -333,12 +351,37 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 void setup() {
   Serial.begin(115200);
   analogReadResolution(9);  // 9 bit resolution for the joystick is enough
+  if (!EEPROM.begin(EEPROM_SIZE)) {
+    Serial.println("Failed to initialise EEPROM");
+    Serial.println("Restarting...");
+    delay(1000);
+    ESP.restart();
+  }
+
+
+  pinMode(RECALIBRATION_PIN,INPUT_PULLUP);
 
   display.init();
   display.setFont(ArialMT_Plain_16);
   display.flipScreenVertically();
   display.display();
-  calibrateJoystick();
+
+  if(EEPROM.read(0) != 1){
+    calibrateJoystick();
+  } else {
+    xmax = EEPROM.readShort(1);
+    xmin = EEPROM.readShort(3);
+    ymax = EEPROM.readShort(5);
+    ymin = EEPROM.readShort(7);
+    xzero = EEPROM.readShort(9);
+    yzero = EEPROM.readShort(11);
+
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.drawString(64,0,"Previous\nCalibration found!\n...Booting...");
+    display.display();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+  }
 
   //Set device in STA mode to begin with
   WiFi.mode(WIFI_STA);
@@ -364,13 +407,16 @@ void setup() {
     // Send data to device
   } else {
     // No slave found to process
-  }
+  } 
+
   esp_now_register_recv_cb(OnDataRecv);
 }
 
 void loop() {
   readJoyStick();
   sendData(slaves[0].peer_addr);
+
+  if(!digitalRead(RECALIBRATION_PIN)){calibrateJoystick();}
 
   if(millis() - lastDisplay > 50){
     displaySpeedAngle();
