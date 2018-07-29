@@ -45,13 +45,19 @@ SSD1306 display(0x3c, 21,22);
 #define PRINTSCANRESULTS 0
 #define EEPROM_SIZE 64
 #define RECALIBRATION_PIN 27
+#define MAGIC_NUMBER 12315
 
-int xmax = 0;
-int xmin = 511;
-int xzero;
-int ymax = 0;
-int ymin = 511;
-int yzero;
+
+struct calibrationStruct{
+  int magicNumber;//'Magic Number - To check to see if the calibration has been performed'
+  int xmax;
+  int xmin;
+  int xzero;
+  int ymax;
+  int ymin;
+  int yzero;
+};
+calibrationStruct calibration;
 
 int roboSpeed;
 int roboAngle;
@@ -177,20 +183,20 @@ void readJoyStick() {
   int rawSpeed = analogRead(36);
   int rawAngle = analogRead(39);
 
-  if(rawSpeed < yzero - 5){
-    roboSpeed = map(rawSpeed,ymin,yzero,-255,0);
-  } else if(rawSpeed > yzero - 5 && rawSpeed < yzero + 5){
+  if(rawSpeed < calibration.yzero - 5){
+    roboSpeed = map(rawSpeed,calibration.ymin,calibration.yzero,-255,0);
+  } else if(rawSpeed > calibration.yzero - 5 && rawSpeed < calibration.yzero + 5){
     roboSpeed = 0;
-  } else if(rawSpeed > yzero + 5){
-    roboSpeed = map(rawSpeed,yzero,ymax,0,255);
+  } else if(rawSpeed > calibration.yzero + 5){
+    roboSpeed = map(rawSpeed,calibration.yzero,calibration.ymax,0,255);
   }
 
-  if(rawAngle < xzero - 5){
-    roboAngle = map(rawAngle,xmin,xzero,-180,0);
-  } else if(rawAngle > xzero - 5 && rawAngle < xzero + 5){
+  if(rawAngle < calibration.xzero - 5){
+    roboAngle = map(rawAngle,calibration.xmin,calibration.xzero,-180,0);
+  } else if(rawAngle > calibration.xzero - 5 && rawAngle < calibration.xzero + 5){
     roboAngle = 0;
-  } else if(rawAngle > xzero + 5){
-    roboAngle = map(rawAngle,xzero,xmax,0,180);
+  } else if(rawAngle > calibration.xzero + 5){
+    roboAngle = map(rawAngle,calibration.xzero,calibration.xmax,0,180);
   }
 
   command.speed = roboSpeed;
@@ -221,42 +227,35 @@ void calibrateJoystick(){
     y = analogRead(36);
     x = analogRead(39);
 
-    y > ymax ? ymax = y : ymax;
-    y < ymin ? ymin = y : ymin;
+    y > calibration.ymax ? calibration.ymax = y : calibration.ymax;
+    y < calibration.ymin ? calibration.ymin = y : calibration.ymin;
 
-    x > xmax ? xmax = x : xmax;
-    x < xmin ? xmin = x : xmin;
+    x > calibration.xmax ? calibration.xmax = x : calibration.xmax;
+    x < calibration.xmin ? calibration.xmin = x : calibration.xmin;
   }
 
 
   //Check for success
-  if(xmax - xInit > 110 && xInit - xmin > 110 && ymax - yInit > 110 && yInit - ymin > 110){
+  if(calibration.xmax - xInit > 110 && xInit - calibration.xmin > 110 && calibration.ymax - yInit > 110 && yInit - calibration.ymin > 110){
     display.clear();
     display.drawString(0,0,"Release Joystick\nand WAIT!");
     display.display();
     delay(4000);
-    xzero = analogRead(39);
-    yzero = analogRead(36);
+    calibration.xzero = analogRead(39);
+    calibration.yzero = analogRead(36);
     display.clear();
     display.drawString(0,0,"Calibration\nDONE!");
     display.display();
 
-    Serial.print("XMAX:");Serial.println(xmax);
-    Serial.print("XMIN:");Serial.println(xmin);
-    Serial.print("YMAX:");Serial.println(ymax);
-    Serial.print("YMIN:");Serial.println(ymin);
-    Serial.print("XZERO:");Serial.println(xzero);
-    Serial.print("YZERO:");Serial.println(yzero);
+    Serial.print("XMAX:");Serial.println(calibration.xmax);
+    Serial.print("XMIN:");Serial.println(calibration.xmin);
+    Serial.print("YMAX:");Serial.println(calibration.ymax);
+    Serial.print("YMIN:");Serial.println(calibration.ymin);
+    Serial.print("XZERO:");Serial.println(calibration.xzero);
+    Serial.print("YZERO:");Serial.println(calibration.yzero);
 
-    EEPROM.writeShort(1,xmax);
-    EEPROM.writeShort(3,xmin);
-    EEPROM.writeShort(5,ymax);
-    EEPROM.writeShort(7,ymin);
-    EEPROM.writeShort(9,xzero);
-    EEPROM.writeShort(11,yzero);
+    EEPROM.put(0,calibration);
   
-
-
     delay(1000);
   } else {
     display.clear();
@@ -266,8 +265,7 @@ void calibrateJoystick(){
     calibrateJoystick();
   }
 
-  EEPROM.writeBool(0,1);
-
+  EEPROM.writeInt(0,calibration.magicNumber);
   EEPROM.commit();
 }
 
@@ -351,14 +349,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 void setup() {
   Serial.begin(115200);
   analogReadResolution(9);  // 9 bit resolution for the joystick is enough
-  if (!EEPROM.begin(EEPROM_SIZE)) {
-    Serial.println("Failed to initialise EEPROM");
-    Serial.println("Restarting...");
-    delay(1000);
-    ESP.restart();
-  }
-
-
+  
   pinMode(RECALIBRATION_PIN,INPUT_PULLUP);
 
   display.init();
@@ -366,15 +357,21 @@ void setup() {
   display.flipScreenVertically();
   display.display();
 
-  if(EEPROM.read(0) != 1){
+  if (!EEPROM.begin(EEPROM_SIZE)) {
+      Serial.println("Failed to initialise EEPROM");
+      Serial.println("Restarting...");
+      delay(1000);
+      ESP.restart();
+    }
+
+  calibration.magicNumber = MAGIC_NUMBER;
+  calibrationStruct calibrationFromEEPROM;
+  EEPROM.get(0,calibrationFromEEPROM);
+
+  if(calibrationFromEEPROM.magicNumber != calibration.magicNumber){
     calibrateJoystick();
   } else {
-    xmax = EEPROM.readShort(1);
-    xmin = EEPROM.readShort(3);
-    ymax = EEPROM.readShort(5);
-    ymin = EEPROM.readShort(7);
-    xzero = EEPROM.readShort(9);
-    yzero = EEPROM.readShort(11);
+    calibration = calibrationFromEEPROM;
 
     display.clear();
     display.setTextAlignment(TEXT_ALIGN_CENTER);
