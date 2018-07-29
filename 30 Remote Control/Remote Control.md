@@ -13,6 +13,9 @@ VCC : 3.3v <br />
 Speed : VP (39) <br />
 Angle : VN (36) <br />
 
+**Recalibration** <br />
+To recalibrate: connect pin 27 (unless redefined in RECALIBRATION_PIN) to ground. 
+
 ---
 
 ## JSON Structure
