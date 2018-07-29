@@ -32,11 +32,11 @@ To recalibrate: connect pin 27 (unless redefined in RECALIBRATION_PIN) to ground
 * JSON Packing (See above *'Json Structure'*)
 * ESP-NOW master, connects to slave (Controller ESP) and sends the json formatted data. (See above *'Json Structure'*)
 * OLED Output of speed and angle data, also instructions for joystick calibration.
-
-## Upcoming Features (Short Term / V1)
 * Calibration data stored in EEPROM
 * Calibration verification
-* Display robot and remote controller battery status.
+
+## Upcoming Features (Short Term / V1)
+* Display robot and remote controller battery status. *(waiting for battery decision)*
 
 ## Future Additions
 * Second Joystick:
