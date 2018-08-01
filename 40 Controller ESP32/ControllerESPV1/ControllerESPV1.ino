@@ -23,11 +23,24 @@
 
 int roboSpeed;
 int roboAngle;
+int motor1speed = 0;
+int motor2speed = 0;
+int lastSpeed1, lastSpeed2;
 
 unsigned long entry;
 byte masterMAC[6];
 
-SSD1306 display(0x3c, 21,22);
+//IO
+#define pwm_motor1 27 //Has to be a PWM output (max 20KHZ)
+#define pwm_motor2 25 //Has to be a PWM output (max 20KHZ)
+#define cw_motor1 4
+#define cw_motor2  19
+#define ccw_motor1  5
+#define ccw_motor2 16
+
+
+
+SSD1306 display(0x3c, 21, 22);
 
 unsigned long lastDisplay = 0;
 
@@ -100,8 +113,8 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len) {
 
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            masterMAC[0], masterMAC[1], masterMAC[2], masterMAC[3], masterMAC[4], masterMAC[5]);
- // Serial.print("Last Packet Recv from: ");
- // Serial.println(macStr);
+  // Serial.print("Last Packet Recv from: ");
+  // Serial.println(macStr);
 
   if (!root.success()) {
     Serial.println("parseObject() failed");
@@ -110,34 +123,49 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len) {
     roboAngle = root["angle"];
 
     float roboBattery = root["battery"];
-    
-    Serial.print(roboSpeed);
-    Serial.print(",");
-    Serial.println(roboAngle);
+
+    /*   Serial.print(roboSpeed);
+       Serial.print(",");
+       Serial.println(roboAngle);
+    */
   }
 }
 
 // callback when data is sent from Master to Slave
 void OnDataSent(const uint8_t *mac_addr1, esp_now_send_status_t status) {
   char macStr[18];
- // snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
- //          mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
- // Serial.print("Last Packet Sent to: "); Serial.println(macStr);
+  // snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+  //          mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+  // Serial.print("Last Packet Sent to: "); Serial.println(macStr);
   Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void displaySpeedAngle(){
+void displaySpeedAngle() {
   display.clear();
-  display.drawString(0,0,"Speed:");
-  display.drawString(0,16,"Angle:");
-  display.drawString(55,0, String(roboSpeed));
-  display.drawString(55,16, String(roboAngle));
+  display.drawString(0, 0, "Speed:");
+  display.drawString(0, 16, "Angle:");
+  display.drawString(55, 0, String(roboSpeed));
+  display.drawString(55, 16, String(roboAngle));
   display.display();
 }
 
 void setup() {
   Serial.begin(115200);
   Serial.println("ESPNow/Basic/Slave Example");
+
+  pinMode(pwm_motor1, OUTPUT);
+  pinMode(pwm_motor2, OUTPUT);
+  pinMode(cw_motor1, OUTPUT);
+  pinMode(cw_motor2, OUTPUT);
+  pinMode(ccw_motor1, OUTPUT);
+  pinMode(ccw_motor2, OUTPUT);
+
+  ledcSetup(0, 1000, 8);
+  ledcAttachPin(pwm_motor1, 0);
+
+  ledcSetup(1, 1000, 8);
+  ledcAttachPin(pwm_motor2, 1);
+
   //Set device in AP mode to begin with
   WiFi.mode(WIFI_AP);
   // configure device AP mode
@@ -155,20 +183,103 @@ void setup() {
   display.flipScreenVertically();
   display.display();
 }
-
+int hi = 10;
 void loop() {
- /* if (millis() > entry + 1000) {
-    Serial.print("Sending ");
-    telemetry.batteryVoltage = 10.6;
-    for (int i = 0; i < 6; i++) Serial.println(masterMAC[i], HEX);
+  /* if (millis() > entry + 1000) {
+     Serial.print("Sending ");
+     telemetry.batteryVoltage = 10.6;
+     for (int i = 0; i < 6; i++) Serial.println(masterMAC[i], HEX);
 
-   sendData(masterMAC);
-    entry = millis();
-  }
-*/
+    sendData(masterMAC);
+     entry = millis();
+    }
+  */
 
-  if(millis() - lastDisplay > 50){
-      displaySpeedAngle();
-      lastDisplay = millis();
+  //controll forward or backwardspeed speed
+  motor1speed = roboSpeed;
+  motor2speed = roboSpeed;
+
+  //ajusting to the angle
+  if (roboSpeed != 0) {
+    motor1speed = motor1speed + roboAngle;
+    motor2speed = motor2speed - roboAngle;
+  } else {
+    motor1speed = 0;
+    motor2speed = 0;
   }
+  /*
+    Serial.print("lastSpeed1 ");
+    Serial.print(lastSpeed1 );
+    Serial.print(" lastSpeed2 ");
+    Serial.print(lastSpeed2 );
+    Serial.print(" motorSpeed1 ");
+    Serial.print( motor1speed);
+    Serial.print(" motorSpeed2 ");
+    Serial.println(motor2speed);
+  */
+  if (abs(lastSpeed1 - motor1speed) > 5 || abs(lastSpeed2 - motor2speed) > 5 ) setMotorSpeed(motor1speed, motor2speed);
+  lastSpeed1 = motor1speed;
+  lastSpeed2 = motor2speed;
+
+  if (millis() - lastDisplay > 50) {
+    displaySpeedAngle();
+    lastDisplay = millis();
+  }
+
+}
+
+void setMotorSpeed(int speed1, int speed2) {
+  //check if signal has ecceeded the maximum speed and correct it if necessary
+  if (speed1 > 255) {
+    speed1 = 255;
+  }
+  else if (speed1 < -255) {
+    speed1 = -255;
+  }
+
+  if (speed2 > 255) {
+    speed2 = 255;
+  }
+  else if (speed2 < -255) {
+    speed2 = -255;
+  }
+
+  //create conrollsignals
+  if (speed1 == 0) {
+    digitalWrite(cw_motor1, LOW);
+    digitalWrite(ccw_motor1, LOW);
+  }
+  else if (speed1 >= 0) {
+    digitalWrite(cw_motor1, HIGH);
+    digitalWrite(ccw_motor1, LOW);
+  }
+  else {
+    digitalWrite(cw_motor1, LOW);
+    digitalWrite(ccw_motor1, HIGH);
+  }
+
+  if (speed2 == 0) {
+    digitalWrite(cw_motor2, LOW);
+    digitalWrite(ccw_motor2, LOW);
+  }
+  else if (speed2 >= 0) {
+    digitalWrite(cw_motor2, HIGH);
+    digitalWrite(ccw_motor2, LOW);
+  }
+  else {
+    digitalWrite(cw_motor2, LOW);
+    digitalWrite(ccw_motor2, HIGH);
+  }
+  ledcWrite(0, speed1);
+  ledcWrite(1, speed2);
+
+  Serial.print(" motorSpeed1 ");
+  Serial.print( motor1speed);
+  Serial.print(" motorSpeed2 ");
+  Serial.println(motor2speed);
+
+  Serial.print(" Speed1 ");
+  Serial.print( speed1);
+  Serial.print(" Speed2 ");
+  Serial.println(speed2);
 }
