@@ -1,5 +1,4 @@
-/**
-   /*
+/*
    Robo Tank controller
    Based on Slave example of ESP_now
 
@@ -14,12 +13,15 @@
 #include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include <GlobalDefinitions.h>
+#include "GlobalDefinitions.h"
+#include "Tank_IO.h"
 
 #include <Wire.h>
 #include <SSD1306.h>
 
 #define CHANNEL 1
+#define motor1Chan 0
+#define motor2Chan 1
 
 int roboSpeed;
 int roboAngle;
@@ -30,17 +32,7 @@ int lastSpeed1, lastSpeed2;
 unsigned long entry;
 byte masterMAC[6];
 
-//IO
-#define pwm_motor1 27 //Has to be a PWM output (max 20KHZ)
-#define pwm_motor2 25 //Has to be a PWM output (max 20KHZ)
-#define cw_motor1 4
-#define cw_motor2  19
-#define ccw_motor1  5
-#define ccw_motor2 16
-
-
-
-SSD1306 display(0x3c, 21, 22);
+SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
 
 unsigned long lastDisplay = 0;
 
@@ -160,11 +152,11 @@ void setup() {
   pinMode(ccw_motor1, OUTPUT);
   pinMode(ccw_motor2, OUTPUT);
 
-  ledcSetup(0, 1000, 8);
-  ledcAttachPin(pwm_motor1, 0);
+  ledcSetup(motor1Chan, 1000, 8);
+  ledcAttachPin(pwm_motor1, motor1Chan);
 
-  ledcSetup(1, 1000, 8);
-  ledcAttachPin(pwm_motor2, 1);
+  ledcSetup(motor2Chan, 1000, 8);
+  ledcAttachPin(pwm_motor2, motor2Chan);
 
   //Set device in AP mode to begin with
   WiFi.mode(WIFI_AP);
@@ -270,8 +262,8 @@ void setMotorSpeed(int speed1, int speed2) {
     digitalWrite(cw_motor2, LOW);
     digitalWrite(ccw_motor2, HIGH);
   }
-  ledcWrite(0, speed1);
-  ledcWrite(1, speed2);
+  ledcWrite(motor1Chan, speed1);
+  ledcWrite(motor2Chan, speed2);
 
   Serial.print(" motorSpeed1 ");
   Serial.print( motor1speed);
