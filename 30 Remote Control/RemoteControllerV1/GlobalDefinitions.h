@@ -6,6 +6,7 @@ int SlaveCnt = 0;
 
 typedef struct commandStruct
 {
+  byte macAdr[6];
   int speed;
   int angle;
 };
