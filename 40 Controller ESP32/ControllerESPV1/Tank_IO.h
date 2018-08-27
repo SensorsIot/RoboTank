@@ -15,12 +15,12 @@ SDA : 21
 #define OLED_SDA 21
 
 //IO
-#define pwm_motor1 12
-#define pwm_motor2 14
-#define A2 13 //cw_motor1
-#define A1 27 //cw_motor1
-#define B2 25 //ccw_motor1
-#define B1 26 //ccw_motor2
+#define pwm_motor1 13
+#define pwm_motor2 25
+#define A2 14 //cw_motor1
+#define A1 27 //cw_motor2
+#define B2 12 //ccw_motor1
+#define B1 16 //ccw_motor2
 
 
 
