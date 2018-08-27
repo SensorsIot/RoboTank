@@ -17,10 +17,10 @@ SDA : 21
 //IO
 #define pwm_motor1 12
 #define pwm_motor2 14
-#define cw_motor1  13
-#define cw_motor2  27
-#define ccw_motor1 25
-#define ccw_motor2 26
+#define A2 13 //cw_motor1
+#define A1 27 //cw_motor1
+#define B2 25 //ccw_motor1
+#define B1 26 //ccw_motor2
 
 
 
