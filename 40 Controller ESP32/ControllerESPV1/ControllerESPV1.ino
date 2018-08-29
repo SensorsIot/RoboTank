@@ -31,7 +31,7 @@ int lastSpeed1, lastSpeed2;
 unsigned long entry;
 byte masterMAC[6];
 
-uint8_t masterDeviceMac[] = {0x24, 0x0A, 0xC4, 0x0D, 0x4B, 0xD8}; // Remote Control
+uint8_t masterDeviceMac[] = REMOTE_MAC; // Remote Control
 
 #define WIFI_CHANNEL 1
 esp_now_peer_info_t master;
@@ -121,7 +121,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
   char jsonChar[COMMANDLENGTH];
   //  const char hi[30] ={'Test'};
   String hh;
-  Serial.printf("\r\nReceived\t%d Bytes\t%d", data_len, data[0]);
+  Serial.printf("\r\nReceived\t%d Bytes\t%s", data_len, data);
 
   uint8_t commandJSON[COMMANDLENGTH];
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
