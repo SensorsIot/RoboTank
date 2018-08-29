@@ -22,6 +22,9 @@ SDA : 21
 #define B2 12 //ccw_motor1
 #define B1 16 //ccw_motor2
 
+//MAC for the Remote Controller
+#define REMOTE_MAC {0x30, 0xAE, 0xA4, 0x1A, 0x19, 0x08}
+
 
 
 
