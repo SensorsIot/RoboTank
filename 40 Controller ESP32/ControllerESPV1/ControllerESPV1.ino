@@ -1,5 +1,4 @@
-/**
-   /*
+/*
    Robo Tank controller
    Based on Slave example of ESP_now
 
@@ -14,11 +13,14 @@
 #include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include <GlobalDefinitions.h>
+#include "GlobalDefinitions.h"
+#include "Tank_IO.h"
 
 #include <Wire.h>
 #include <SSD1306.h>
 
+#define motor1Chan 0
+#define motor2Chan 1
 
 int roboSpeed;
 int roboAngle;
@@ -29,15 +31,7 @@ int lastSpeed1, lastSpeed2;
 unsigned long entry;
 byte masterMAC[6];
 
-//IO
-#define pwm_motor1 12 //Has to be a PWM output (max 20KHZ)
-#define pwm_motor2 14 //Has to be a PWM output (max 20KHZ)
-#define A1 27
-#define A2  13
-#define B1  26
-#define B2 25
-
-uint8_t masterDeviceMac[] = {0x24, 0x0A, 0xC4, 0x0D, 0x4B, 0xD8}; // Remote Control
+uint8_t masterDeviceMac[] = REMOTE_MAC; // Remote Control
 
 #define WIFI_CHANNEL 1
 esp_now_peer_info_t master;
@@ -47,9 +41,7 @@ uint8_t dataToSend[maxDataFrameSize];
 byte cnt = 0;
 esp_err_t sendResult;
 
-
-
-SSD1306 display(0x3c, 21, 22);
+SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
 
 unsigned long lastDisplay = 0;
 
@@ -129,7 +121,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
   char jsonChar[COMMANDLENGTH];
   //  const char hi[30] ={'Test'};
   String hh;
-  Serial.printf("\r\nReceived\t%d Bytes\t%d", data_len, data[0]);
+  Serial.printf("\r\nReceived\t%d Bytes\t%s", data_len, data);
 
   uint8_t commandJSON[COMMANDLENGTH];
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
@@ -264,11 +256,11 @@ void setup() {
   pinMode(B1, OUTPUT);
   pinMode(B2, OUTPUT);
 
-  ledcSetup(0, 1000, 8);
-  ledcAttachPin(pwm_motor1, 0);
+  ledcSetup(motor1Chan, 1000, 8);
+  ledcAttachPin(pwm_motor1, motor1Chan);
 
-  ledcSetup(1, 1000, 8);
-  ledcAttachPin(pwm_motor2, 1);
+  ledcSetup(motor2Chan, 1000, 8);
+  ledcAttachPin(pwm_motor2, motor2Chan);
 
   Serial.print("\r\n\r\n");
   WiFi.mode(WIFI_AP_STA);
@@ -383,8 +375,8 @@ void setMotorSpeed(int speed1, int speed2) {
     digitalWrite(A2, LOW);
     digitalWrite(B2, HIGH);
   }
-  ledcWrite(0, abs(speed1));
-  ledcWrite(1, abs(speed2));
+  ledcWrite(motor1Chan, abs(speed1));
+  ledcWrite(motor2Chan, abs(speed2));
 
   Serial.print(" motorSpeed1 ");
   Serial.print( motor1speed);
