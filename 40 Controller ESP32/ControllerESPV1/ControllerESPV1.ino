@@ -118,17 +118,16 @@ byte charToByte(char in) {
 // callback when data is recv from Master
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
-  char jsonChar[COMMANDLENGTH];
-  //  const char hi[30] ={'Test'};
-  String hh;
-  Serial.printf("\r\nReceived\t%d Bytes\t%s", data_len, data);
+  char jsonCharIn[COMMANDLENGTH];
+  memcpy( jsonCharIn, data, data_len );
+  jsonCharIn[data_len]=0;
+  Serial.printf("\r\nReceived\t%d Bytes\t%s", data_len, jsonCharIn);
 
   uint8_t commandJSON[COMMANDLENGTH];
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(data);
-  for (int i = 0; i < 6; i++) masterMAC[i] = mac_addr[i];
+  JsonObject& root = jsonBuffer.parseObject(jsonCharIn);
 
-
+  String hh;
   if (!root.success()) {
     Serial.println("parseObject() failed");
   } else {
@@ -138,6 +137,7 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
     hh = hi;
   }
   Serial.println("");
+
   Serial.println("MAC ");
   for (int L = 0; L < 6; L ++) {
     masterMAC[L] = 16 * charToByte(hh[L * 3]) + charToByte(hh[(L * 3 + 1)]);
@@ -145,12 +145,14 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
     Serial.print("*");
   }
   Serial.println();
+  Serial.print("speed,angle=");
   Serial.print(roboSpeed);
   Serial.print(",");
   Serial.println(roboAngle);
 
-
   // Transmitting
+  char jsonChar[COMMANDLENGTH];
+
   root["battery"] = telemetry.batteryVoltage;
   root.printTo(jsonChar, COMMANDLENGTH);
   root.printTo(Serial);
@@ -172,7 +174,6 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
   }
   Serial.println();
   
-
   sendResult = esp_now_send(master.peer_addr, commandJSON, JSONlen + 1);
   if (sendResult == ESP_OK) {
     Serial.println("Success");
