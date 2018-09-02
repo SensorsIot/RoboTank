@@ -49,7 +49,7 @@ int roboAngle;
 unsigned long lastDisplay = 0;
 unsigned long pressStart = 0;
 
-float roboBattery;
+float roboBattery = -1; //Battery should not be negative so use this to flag no reading
 uint8_t peer_addr[6];
 
 // Init ESP Now with fallback
@@ -254,12 +254,14 @@ void calibrateJoystick() {
   EEPROM.commit();
 }
 
-void displaySpeedAngle() {
+void WriteDisplay() {
   display.clear();
   display.drawString(0, 0, "Speed:");
   display.drawString(0, 16, "Angle:");
+  display.drawString(0, 32, "Battery:");
   display.drawString(55, 0, String(roboSpeed));
   display.drawString(55, 16, String(roboAngle));
+  display.drawString(55, 32, roboBattery>0 ? String(roboBattery) : "---");
   display.display();
 }
 
@@ -420,7 +422,7 @@ void loop() {
     }
   }
   if (millis() - lastDisplay > 50) {
-    displaySpeedAngle();
+    WriteDisplay();
     lastDisplay = millis();
   }
 }
