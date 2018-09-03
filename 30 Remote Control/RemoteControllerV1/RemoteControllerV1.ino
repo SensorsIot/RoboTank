@@ -28,7 +28,7 @@ Further info is in the GitHub documentation.
 
 #define WIFI_CHANNEL 1
 esp_now_peer_info_t slave;
-uint8_t remoteMac[] = {0x24, 0x0A, 0xC4, 0x0D, 0x81, 0xE1};
+uint8_t remoteMac[] = MASTER_MAC;
 
 SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
 

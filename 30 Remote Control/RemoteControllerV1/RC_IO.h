@@ -32,6 +32,7 @@ To recalibrate: connect 27 to ground!
 
 #define RECALIBRATION_PIN 27
 
-
+//MAC for the Tank Controller
+#define MASTER_MAC {0x24, 0x0A, 0xC4, 0x0D, 0x81, 0xE1}
 
 
