@@ -1,5 +1,4 @@
-/**
-   /*
+/*
    Robo Tank controller
    Based on Slave example of ESP_now
 
@@ -12,13 +11,17 @@
 
 */
 
+#include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include <ArduinoJson.h>
-#include <GlobalDefinitions.h>
+#include "GlobalDefinitions.h"
+#include "Tank_IO.h"
 
 #include <Wire.h>
 #include <SSD1306.h>
+
+#define motor1Chan 0
+#define motor2Chan 1
 
 int roboSpeed;
 int roboAngle;
@@ -26,15 +29,7 @@ int motor1speed = 0;
 int motor2speed = 0;
 int lastSpeed1, lastSpeed2;
 
-//IO
-#define pwm_motor1 12 //Has to be a PWM output (max 20KHZ)
-#define pwm_motor2 14 //Has to be a PWM output (max 20KHZ)
-#define A1 27
-#define A2  13
-#define B1  26
-#define B2 25
-
-uint8_t masterDeviceMac[] = {0x24, 0x0A, 0xC4, 0x0D, 0x4B, 0xD8}; // Remote Control
+uint8_t masterDeviceMac[] = REMOTE_MAC; // Remote Control
 
 #define WIFI_CHANNEL 1
 
@@ -45,9 +40,8 @@ uint8_t dataToSend[maxDataFrameSize];
 byte cnt = 0;
 esp_err_t sendResult;
 
+SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
 unsigned long lastDisplay = 0;
-
-SSD1306 display(0x3c, 21, 22);
 
 void setup()
 {
@@ -163,8 +157,8 @@ void setMotorSpeed(int speed1, int speed2) {
     digitalWrite(A2, LOW);
     digitalWrite(B2, HIGH);
   }
-  ledcWrite(0, abs(speed1));
-  ledcWrite(1, abs(speed2));
+  ledcWrite(motor1Chan, abs(speed1));
+  ledcWrite(motor2Chan, abs(speed2));
 
   Serial.print(" motorSpeed1 ");
   Serial.print( motor1speed);

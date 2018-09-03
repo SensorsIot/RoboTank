@@ -10,23 +10,7 @@
 
    !!!!!!!!!!! Please use ArduinoJson Library 5.13, not 6.xx beta
 
-
-  Connections:
-  OLED
-  GND : GND
-  VCC : 3.3V
-  SCL : 22
-  SDA : 21
-
-  Joystick
-  GND : GND
-  VCC : 3.3V
-  Speed: VP (39)
-  Angle: VN (36)
-
-  To recalibrate: connect 27 to ground!
-
-  Further info is in the GitHub documentation.
+Further info is in the GitHub documentation.
 
 */
 
@@ -34,22 +18,24 @@
 #include <WiFi.h>
 
 #include <ArduinoJson.h>
-#include <GlobalDefinitions.h>
+#include "GlobalDefinitions.h"
 
 #include <Wire.h>
 #include <SSD1306.h>
 #include <EEPROM.h>
 
+#include "RC_IO.h"
+
 #define WIFI_CHANNEL 1
 esp_now_peer_info_t slave;
 uint8_t remoteMac[] = {0x24, 0x0A, 0xC4, 0x0D, 0x81, 0xE1};
 
-SSD1306 display(0x3c, 21, 22);
+SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
+
 
 #define CHANNEL 1
 #define PRINTSCANRESULTS 0
 #define EEPROM_SIZE 64
-#define RECALIBRATION_PIN 27
 #define MAGIC_NUMBER 12315
 
 const uint8_t maxDataFrameSize = 200;
@@ -80,8 +66,8 @@ float roboBattery;
 uint8_t peer_addr[6];
 
 void readJoyStick() {
-  int rawSpeed = analogRead(36);
-  int rawAngle = analogRead(39);
+  int rawSpeed = analogRead(JS1_VY);
+  int rawAngle = analogRead(JS1_VX);
 
   if (rawSpeed < calibration.yzero - 5) {
     roboSpeed = map(rawSpeed, calibration.ymin, calibration.yzero, -255, 0);
@@ -121,12 +107,12 @@ void calibrateJoystick() {
   int x;
 
   //Values for calibration sucess check
-  int xInit = analogRead(39);
-  int yInit = analogRead(36);
-
-  while (millis() - start < 5000) {
-    y = analogRead(36);
-    x = analogRead(39);
+  int xInit = analogRead(JS1_VX);
+  int yInit = analogRead(JS1_VY);
+ 
+  while(millis() - start < 5000){
+    y = analogRead(JS1_VY);
+    x = analogRead(JS1_VX);
 
     y > recalibration.ymax ? recalibration.ymax = y : recalibration.ymax;
     y < recalibration.ymin ? recalibration.ymin = y : recalibration.ymin;
@@ -142,8 +128,8 @@ void calibrateJoystick() {
     display.drawString(0, 0, "Release Joystick\nand WAIT!");
     display.display();
     delay(4000);
-    recalibration.xzero = analogRead(39);
-    recalibration.yzero = analogRead(36);
+    recalibration.xzero = analogRead(JS1_VX);
+    recalibration.yzero = analogRead(JS1_VY);
     display.clear();
     display.drawString(0, 0, "Calibration\nDONE!");
     display.display();
