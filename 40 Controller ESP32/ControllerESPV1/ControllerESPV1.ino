@@ -14,12 +14,29 @@
 #include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include "GlobalDefinitions.h"
-#include "Tank_IO.h"
-
 #include <Wire.h>
 #include <SSD1306.h>
 
+#include "GlobalDefinitions.h"
+#include "Tank_IO.h"
+#define HasDisplay false
+
+#define WIFI_CHANNEL 1
+esp_now_peer_info_t master;
+const esp_now_peer_info_t *masterNode = &master;
+uint8_t masterDeviceMac[] = REMOTE_MAC; // Remote Control
+const byte maxDataFrameSize = 200;
+byte cnt = 0;
+
+uint8_t dataToSend[maxDataFrameSize];
+
+#if HasDisplay
+SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
+unsigned long  displayUpdate_ms = 50;
+unsigned long lastDisplay = 0;
+#endif 
+
+//Motor Stuff
 #define motor1Chan 0
 #define motor2Chan 1
 
@@ -29,24 +46,11 @@ int motor1speed = 0;
 int motor2speed = 0;
 int lastSpeed1, lastSpeed2;
 
-uint8_t masterDeviceMac[] = REMOTE_MAC; // Remote Control
-
-#define WIFI_CHANNEL 1
-
-esp_now_peer_info_t master;
-const esp_now_peer_info_t *masterNode = &master;
-const byte maxDataFrameSize = 200;
-uint8_t dataToSend[maxDataFrameSize];
-byte cnt = 0;
-esp_err_t sendResult;
-
-SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
-unsigned long lastDisplay = 0;
-
 void setup()
 {
   Serial.begin(115200);
   Serial.print("\r\n\r\n");
+
   WiFi.mode(WIFI_AP_STA);
   Serial.println( WiFi.softAPmacAddress() );
   WiFi.disconnect();
@@ -63,8 +67,7 @@ void setup()
   memcpy( &master.peer_addr, &masterDeviceMac, 6 );
   master.channel = WIFI_CHANNEL;
   master.encrypt = 0;
-  master.ifidx = ESP_IF_WIFI_AP;
-  //Add the remote master node to this slave node
+  master.ifidx = ESP_IF_WIFI_AP;    //!TODO: Investigate
   if ( esp_now_add_peer(masterNode) == ESP_OK)
   {
     Serial.println("Added Master Node!");
@@ -93,7 +96,7 @@ void loop()
     motor1speed = 0;
     motor2speed = 0;
   }
-
+ 
   /*
     Serial.print("lastSpeed1 ");
     Serial.print(lastSpeed1 );
@@ -108,15 +111,20 @@ void loop()
   lastSpeed1 = motor1speed;
   lastSpeed2 = motor2speed;
 
-  if (millis() - lastDisplay > 50) {
- //   displaySpeedAngle();
+#if HasDisplay
+  if (millis() - lastDisplay > displayUpdate_ms) {
+    displayUpdate();
     lastDisplay = millis();
   }
-  yield();
+#endif
+  
+  //yield();  //!TODO: Is this needed?
+  
 }
 
 void setMotorSpeed(int speed1, int speed2) {
-  //check if signal has ecceeded the maximum speed and correct it if necessary
+  //check if signal has exceeded the maximum speed and correct it if necessary
+  //!TODO: Simplify using Max and Min
   if (speed1 > 255) {
     speed1 = 255;
   }
@@ -131,7 +139,8 @@ void setMotorSpeed(int speed1, int speed2) {
     speed2 = -255;
   }
 
-  //create conrollsignals
+  //create control signals
+  //!TODO: Simplify
   if (speed1 == 0) {
     digitalWrite(A1, LOW);
     digitalWrite(B1, LOW);
@@ -173,16 +182,21 @@ void setMotorSpeed(int speed1, int speed2) {
 
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
-  uint8_t commandJSON[COMMANDLENGTH];
   char jsonChar[COMMANDLENGTH];
-
-  Serial.printf("\r\nReceived\t%d Bytes\t%d", data_len, data[0]);
+  int len = std::min(COMMANDLENGTH, data_len);
+  memcpy( jsonChar, data, len );
+  jsonChar[len]=0;
+  Serial.print("Received ");
+  Serial.print(len);
+  Serial.print(" bytes:");
+  Serial.println(jsonChar);
+  
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(data);
-
+  JsonObject& root = jsonBuffer.parseObject(jsonChar);
   if (!root.success()) {
     Serial.println("parseObject() failed");
   } else {
+    Serial.println("parsed");
     roboSpeed = root["speed"];
     roboAngle = root["angle"];
     Serial.println();
@@ -193,14 +207,22 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 
   root["battery"] = telemetry.batteryVoltage;
   root.printTo(jsonChar, COMMANDLENGTH);
-  root.printTo(Serial);
-  memcpy(commandJSON, jsonChar, sizeof(jsonChar));
 
+  // find length of JSON string being sent
   int JSONlen = 0;
-  while (commandJSON[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 1) JSONlen++; // find end of JSON string
-  Serial.println(JSONlen);
+  while (jsonChar[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 2) JSONlen++; 
+  JSONlen++;  //Account for starting at 0
+  jsonChar[JSONlen] = 0;
 
-  sendResult = esp_now_send(master.peer_addr, commandJSON, JSONlen + 1);
+  Serial.print("Sending ");
+  Serial.print(JSONlen);
+  Serial.print(" bytes:");
+  Serial.print(jsonChar);
+  Serial.print("\t");
+
+  uint8_t commandJSON[COMMANDLENGTH];
+  memcpy(commandJSON, jsonChar, JSONlen + 1);
+  esp_err_t sendResult = esp_now_send(master.peer_addr, commandJSON, JSONlen + 1);
   if (sendResult == ESP_OK) {
     Serial.println("Success");
   } else if (sendResult == ESP_ERR_ESPNOW_NOT_INIT) {
@@ -214,21 +236,20 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
     Serial.println("ESP_ERR_ESPNOW_NO_MEM");
   } else if (sendResult == ESP_ERR_ESPNOW_NOT_FOUND) {
     Serial.println("Peer not found.");
-  }
-  else if (sendResult == ESP_ERR_ESPNOW_IF) {
+  } else if (sendResult == ESP_ERR_ESPNOW_IF) {
     Serial.println("Interface Error.");
-  }   else {
-    Serial.printf("\r\nNot sure what happened\t%d", sendResult);
+  } else {
+    Serial.printf("Unknown Error: \t%d", sendResult);
   }
 }
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.print(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? " Delivery Success" : " Delivery Fail");
 }
 
-void displaySpeedAngle() {
+#if HasDisplay
+void displayUpdate() {
   display.clear();
   display.drawString(0, 0, "Speed:");
   display.drawString(0, 16, "Angle:");
@@ -236,3 +257,4 @@ void displaySpeedAngle() {
   display.drawString(55, 16, String(roboAngle));
   display.display();
 }
+#endif
