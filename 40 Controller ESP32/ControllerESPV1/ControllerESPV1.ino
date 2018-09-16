@@ -40,6 +40,10 @@ unsigned long lastDisplay = 0;
 #define motor1Chan 0
 #define motor2Chan 1
 
+//Fake Battery discharge
+float battInitial = 4.2 * 3;//Typical 3Cell Lipo
+float battPerSec = -0.01;  //Discharge Rate
+
 int roboSpeed;
 int roboAngle;
 int motor1speed = 0;
@@ -79,37 +83,24 @@ void setup()
 
   esp_now_register_recv_cb(OnDataRecv);
   esp_now_register_send_cb(OnDataSent);
+
+}
+
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
+  ReceiveMessage(data, data_len);
+  SendMessage();
+}
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? " Delivery Success" : " Delivery Fail");
 }
 
 void loop()
 {
-  telemetry.batteryVoltage = 10.6;
-  //controll forward or backwardspeed speed
-  motor1speed = roboSpeed;
-  motor2speed = roboSpeed;
-
-  //ajusting to the angle
-  if (roboSpeed != 0) {
-    motor1speed = motor1speed + roboAngle;
-    motor2speed = motor2speed - roboAngle;
-  } else {
-    motor1speed = 0;
-    motor2speed = 0;
-  }
- 
-  /*
-    Serial.print("lastSpeed1 ");
-    Serial.print(lastSpeed1 );
-    Serial.print(" lastSpeed2 ");
-    Serial.print(lastSpeed2 );
-    Serial.print(" motorSpeed1 ");
-    Serial.print( motor1speed);
-    Serial.print(" motorSpeed2 ");
-    Serial.println(motor2speed);
-  */
-  if (abs(lastSpeed1 - motor1speed) > 5 || abs(lastSpeed2 - motor2speed) > 5 ) setMotorSpeed(motor1speed, motor2speed);
-  lastSpeed1 = motor1speed;
-  lastSpeed2 = motor2speed;
+  telemetry.batteryVoltage = getBatteryVoltage();
+  //setMotorSpeed(roboSpeed, roboAngle);
 
 #if HasDisplay
   if (millis() - lastDisplay > displayUpdate_ms) {
@@ -117,94 +108,83 @@ void loop()
     lastDisplay = millis();
   }
 #endif
-  
-  //yield();  //!TODO: Is this needed?
-  
+
+  yield();  //!TODO: Is this needed?, Do we need to slow the loop?
 }
 
-void setMotorSpeed(int speed1, int speed2) {
-  //check if signal has exceeded the maximum speed and correct it if necessary
-  //!TODO: Simplify using Max and Min
-  if (speed1 > 255) {
-    speed1 = 255;
-  }
-  else if (speed1 < -255) {
-    speed1 = -255;
-  }
+#if HasDisplay
+void displayUpdate() {
+  display.clear();
+  display.drawString(0, 0, "Speed:");
+  display.drawString(0, 16, "Angle:");
+  display.drawString(55, 0, String(roboSpeed));
+  display.drawString(55, 16, String(roboAngle));
+  display.display();
+}
+#endif
 
-  if (speed2 > 255) {
-    speed2 = 255;
-  }
-  else if (speed2 < -255) {
-    speed2 = -255;
-  }
-
-  //create control signals
-  //!TODO: Simplify
-  if (speed1 == 0) {
-    digitalWrite(A1, LOW);
-    digitalWrite(B1, LOW);
-  }
-  else if (speed1 >= 0) {
-    digitalWrite(A1, HIGH);
-    digitalWrite(B1, LOW);
-  }
-  else {
-    digitalWrite(A1, LOW);
-    digitalWrite(B1, HIGH);
-  }
-
-  if (speed2 == 0) {
-    digitalWrite(A2, LOW);
-    digitalWrite(B2, LOW);
-  }
-  else if (speed2 >= 0) {
-    digitalWrite(A2, HIGH);
-    digitalWrite(B2, LOW);
-  }
-  else {
-    digitalWrite(A2, LOW);
-    digitalWrite(B2, HIGH);
-  }
-  ledcWrite(motor1Chan, abs(speed1));
-  ledcWrite(motor2Chan, abs(speed2));
-
-  Serial.print(" motorSpeed1 ");
-  Serial.print( motor1speed);
-  Serial.print(" motorSpeed2 ");
-  Serial.println(motor2speed);
-
-  Serial.print(" Speed1 ");
-  Serial.print( speed1);
-  Serial.print(" Speed2 ");
-  Serial.println(speed2);
+float getBatteryVoltage(){
+  return constrain(battInitial + (int)(millis()/1000)*battPerSec,0,battInitial);
 }
 
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+void setMotorSpeed(int speed, int angle) {
+  //controll forward or backwardspeed speed
+  motor1speed = (int)( (float)roboSpeed * ( 1.0 + angle / 180.0 ) );
+  motor2speed = (int)( (float)roboSpeed * ( 1.0 - angle / 180.0 ) );
+
+  if (abs(lastSpeed1 - motor1speed) > 5 || abs(lastSpeed2 - motor2speed) > 5 )
+  {
+    int speed1 = constrain(motor1speed, -255, 255);
+    int speed2 = constrain(motor2speed, -255, 255);
+    digitalWrite(A1, (speed1 <= 0) ? LOW : HIGH);
+    digitalWrite(B1, (speed1 >= 0) ? LOW : HIGH);
+    digitalWrite(A2, (speed2 <= 0) ? LOW : HIGH);
+    digitalWrite(B2, (speed2 >= 0) ? LOW : HIGH);
+  
+    ledcWrite(motor1Chan, abs(speed1));
+    ledcWrite(motor2Chan, abs(speed2));
+
+    Serial.print(" motorSpeeds: ");
+    Serial.print( speed1);
+    Serial.print(" , ");
+    Serial.println(speed2);
+
+    lastSpeed1 = motor1speed;
+    lastSpeed2 = motor2speed;
+  }
+}
+
+void ReceiveMessage(const uint8_t *data, int data_len)
 {
-  char jsonChar[COMMANDLENGTH];
-  int len = std::min(COMMANDLENGTH, data_len);
-  memcpy( jsonChar, data, len );
-  jsonChar[len]=0;
   Serial.print("Received ");
-  Serial.print(len);
+  Serial.print(data_len);
   Serial.print(" bytes:");
-  Serial.println(jsonChar);
-  
+  char jsonChar[COMMANDLENGTH];
+  jsonChar[COMMANDLENGTH-1]=0;
+  strncpy( jsonChar, (char*)data, COMMANDLENGTH-1 );
+  Serial.print(jsonChar);
+  Serial.print("\t");
+    
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  Serial.print("parseObject ");
   JsonObject& root = jsonBuffer.parseObject(jsonChar);
   if (!root.success()) {
-    Serial.println("parseObject() failed");
+    Serial.println("failed!!!");
   } else {
     Serial.println("parsed");
     roboSpeed = root["speed"];
     roboAngle = root["angle"];
-    Serial.println();
     Serial.print(roboSpeed);
     Serial.print(",");
     Serial.println(roboAngle);
-  }
+  } 
+}
 
+void SendMessage()
+{
+  char jsonChar[COMMANDLENGTH];
+  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
   root["battery"] = telemetry.batteryVoltage;
   root.printTo(jsonChar, COMMANDLENGTH);
 
@@ -243,18 +223,4 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
   }
 }
 
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
-{
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? " Delivery Success" : " Delivery Fail");
-}
 
-#if HasDisplay
-void displayUpdate() {
-  display.clear();
-  display.drawString(0, 0, "Speed:");
-  display.drawString(0, 16, "Angle:");
-  display.drawString(55, 0, String(roboSpeed));
-  display.drawString(55, 16, String(roboAngle));
-  display.display();
-}
-#endif

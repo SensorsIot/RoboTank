@@ -29,7 +29,7 @@ Further info is in the GitHub documentation.
 esp_now_peer_info_t slave;
 const esp_now_peer_info_t *peer = &slave;
 uint8_t remoteMac[] = MASTER_MAC;
-unsigned long  sendUpdate_ms = 2000;
+unsigned long  sendUpdate_ms = 100;
 const uint8_t maxDataFrameSize = 200;
 byte cnt = 0;
 
@@ -268,6 +268,16 @@ void setup()
   }
 }
 
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
+  ReceiveMessage(data, data_len);
+}
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? " Delivery Success" : " Delivery Fail");
+}
+
 void loop()
 {
   readJoyStick();
@@ -298,27 +308,22 @@ void loop()
   }
 }
 
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+void ReceiveMessage(const uint8_t *data, int data_len)
 {
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? " Delivery Success" : " Delivery Fail");
-}
-
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
-{
-  char jsonChar[COMMANDLENGTH];
-  int len = std::min(COMMANDLENGTH, data_len);
-  memcpy( jsonChar, data, len );
-  jsonChar[len]=0;
   Serial.print("Received ");
   Serial.print(data_len);
   Serial.print(" bytes:");
+  char jsonChar[COMMANDLENGTH];
+  jsonChar[COMMANDLENGTH-1]=0;
+  strncpy( jsonChar, (char*)data, COMMANDLENGTH-1 );
   Serial.print(jsonChar);
   Serial.print("\t");
   
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  Serial.print("parseObject ");
   JsonObject& root = jsonBuffer.parseObject(jsonChar);
   if (!root.success()) {
-    Serial.println("parseObject() failed");
+    Serial.println("failed!!!");
   } else {
     Serial.println("parsed");
     roboBattery = root["battery"];
