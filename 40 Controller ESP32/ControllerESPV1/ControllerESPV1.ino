@@ -100,7 +100,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 void loop()
 {
   telemetry.batteryVoltage = getBatteryVoltage();
-  //setMotorSpeed(roboSpeed, roboAngle);
+  setMotorSpeed(roboSpeed, roboAngle);
 
 #if HasDisplay
   if (millis() - lastDisplay > displayUpdate_ms) {
