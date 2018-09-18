@@ -14,36 +14,32 @@ Further info is in the GitHub documentation.
 
 */
 
+#include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
-
-#include <ArduinoJson.h>
-#include "GlobalDefinitions.h"
-
 #include <Wire.h>
 #include <SSD1306.h>
-#include <EEPROM.h>
 
+#include "GlobalDefinitions.h"
 #include "RC_IO.h"
+
+#include <EEPROM.h>
 
 #define WIFI_CHANNEL 1
 esp_now_peer_info_t slave;
-uint8_t remoteMac[] = MASTER_MAC;
-
-SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
-
-
-#define CHANNEL 1
-#define PRINTSCANRESULTS 0
-#define EEPROM_SIZE 64
-#define MAGIC_NUMBER 12315
-
-const uint8_t maxDataFrameSize = 200;
 const esp_now_peer_info_t *peer = &slave;
-uint8_t dataToSend[maxDataFrameSize];
+uint8_t remoteMac[] = MASTER_MAC;
+unsigned long  sendUpdate_ms = 100;
+const uint8_t maxDataFrameSize = 200;
 byte cnt = 0;
+
 unsigned long teleEntry;
 
+SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
+unsigned long  displayUpdate_ms = 50;
+
+#define EEPROM_SIZE 64
+#define MAGIC_NUMBER 12315
 
 struct calibrationStruct {
   int magicNumber = MAGIC_NUMBER;//'Magic Number - To check to see if the calibration has been performed'
@@ -60,10 +56,10 @@ int roboSpeed;
 int roboAngle;
 
 unsigned long lastDisplay = 0;
+unsigned long lastSend = 0;
 unsigned long pressStart = 0;
 
 float roboBattery;
-uint8_t peer_addr[6];
 
 void readJoyStick() {
   int rawSpeed = analogRead(JS1_VY);
@@ -155,7 +151,7 @@ void calibrateJoystick() {
   EEPROM.commit();
 }
 
-void displaySpeedAngle() {
+void displayUpdate() {
   display.clear();
   display.drawString(0, 0, "Speed:");
   display.drawString(0, 16, "Angle:");
@@ -168,7 +164,6 @@ void displaySpeedAngle() {
 }
 
 void sendData(byte *peer_addr) {
-  uint8_t commandJSON[COMMANDLENGTH];
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
   JsonObject& root = jsonBuffer.createObject();
 
@@ -177,15 +172,21 @@ void sendData(byte *peer_addr) {
   char jsonChar[COMMANDLENGTH];
   root.printTo(jsonChar, COMMANDLENGTH);
 
-  //  root.printTo(Serial);
-  memcpy(commandJSON, jsonChar, sizeof(jsonChar));
-  Serial.println(jsonChar);
-
+  // find length of JSON string being sent
   int JSONlen = 0;
-  while (commandJSON[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 1) JSONlen++; // find end of JSON string
-  Serial.println(jsonChar);
+  while (jsonChar[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 2) JSONlen++; 
+  JSONlen++;  //Account for starting at 0
+  jsonChar[JSONlen] = 0;
+
+  Serial.print("Sending ");
+  Serial.print(JSONlen);
+  Serial.print(" bytes:");
+  Serial.print(jsonChar);
+  Serial.print("\t");
+
+  uint8_t commandJSON[COMMANDLENGTH];
+  memcpy(commandJSON, jsonChar, JSONlen + 1);
   esp_err_t result = esp_now_send(peer_addr, commandJSON, JSONlen + 1);
-  // Serial.print("Send Status: ");
   if (result == ESP_OK) {
     //   Serial.println("Success");
   } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
@@ -200,16 +201,38 @@ void sendData(byte *peer_addr) {
   } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
     Serial.println("Peer not found.");
   } else {
-    Serial.println("Not sure what happened");
+    Serial.printf("Unknown Error: \t%d", result);
   }
   delay(50);
 }
-
 
 void setup()
 {
   Serial.begin(115200);
   Serial.print("\r\n\r\n");
+
+  WiFi.mode(WIFI_STA);
+  Serial.println( WiFi.macAddress() );
+  WiFi.disconnect();
+  if (esp_now_init() == ESP_OK)
+  {
+    Serial.println("ESP NOW INIT!");
+  }
+  else
+  {
+    Serial.println("ESP NOW INIT FAILED....");
+  }
+
+  memcpy( &slave.peer_addr, &remoteMac, 6 );
+  slave.channel = WIFI_CHANNEL;
+  slave.encrypt = 0;
+  if ( esp_now_add_peer(peer) == ESP_OK)
+  {
+    Serial.println("Added Peer!");
+  }
+
+  esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(OnDataRecv);
 
   analogReadResolution(9);  // 9 bit resolution for the joystick is enough
 
@@ -217,7 +240,7 @@ void setup()
 
   display.init();
   display.setFont(ArialMT_Plain_16);
-  display.flipScreenVertically();
+  display.flipScreenVertically();   //!TODO: Make Configurable
   display.display();
 
   if (!EEPROM.begin(EEPROM_SIZE)) {
@@ -242,44 +265,29 @@ void setup()
     display.display();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
   }
-
-  WiFi.mode(WIFI_STA);
-  Serial.println( WiFi.macAddress() );
-  WiFi.disconnect();
-  if (esp_now_init() == ESP_OK)
-  {
-    Serial.println("ESP NOW INIT!");
-  }
-  else
-  {
-    Serial.println("ESP NOW INIT FAILED....");
-  }
-
-
-  memcpy( &slave.peer_addr, &remoteMac, 6 );
-  slave.channel = WIFI_CHANNEL;
-  slave.encrypt = 0;
-  if ( esp_now_add_peer(peer) == ESP_OK)
-  {
-    Serial.println("Added Peer!");
-  }
-
-  esp_now_register_send_cb(OnDataSent);
-  esp_now_register_recv_cb(OnDataRecv);
 }
 
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
+  ReceiveMessage(data, data_len);
+}
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? " Delivery Success" : " Delivery Fail");
+}
 
 void loop()
 {
   readJoyStick();
-  if (!digitalRead(RECALIBRATION_PIN)) {
+  if (!digitalRead(RECALIBRATION_PIN)) {    //! can you change pin polarity to make this clearer?
     bool pressed = true;
     pressStart = millis();
     display.clear();
     display.drawString(0, 0, "Hold to\nrecalibrate!");
     display.display();
     int i = 0;
-    while (millis() - pressStart < 3000) {
+    while (millis() - pressStart < 3000) {    //! This is blocking the main loop, fix
       if (digitalRead(RECALIBRATION_PIN)) {
         pressed = false;
         break;
@@ -289,34 +297,36 @@ void loop()
       calibrateJoystick();
     }
   }
-  if (millis() - lastDisplay > 50) {
-    displaySpeedAngle();
+  if (millis() - lastDisplay > displayUpdate_ms) {
+    displayUpdate();
     lastDisplay = millis();
   }
-  sendData(slave.peer_addr);
-
-  for (cnt = 0; cnt < maxDataFrameSize; cnt++)
-  {
-    dataToSend[cnt]++;
+  if (millis() - lastSend > sendUpdate_ms) {
+    sendData(slave.peer_addr);
+    lastSend = millis();
   }
 }
 
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+void ReceiveMessage(const uint8_t *data, int data_len)
 {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.print(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
-
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *json, int data_len)
-{
+  Serial.print("Received ");
+  Serial.print(data_len);
+  Serial.print(" bytes:");
+  char jsonChar[COMMANDLENGTH];
+  jsonChar[COMMANDLENGTH-1]=0;
+  strncpy( jsonChar, (char*)data, COMMANDLENGTH-1 );
+  Serial.print(jsonChar);
+  Serial.print("\t");
+  
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(json);
+  Serial.print("parseObject ");
+  JsonObject& root = jsonBuffer.parseObject(jsonChar);
   if (!root.success()) {
-    Serial.println("parseObject() failed");
+    Serial.println("failed!!!");
   } else {
+    Serial.println("parsed");
     roboBattery = root["battery"];
-    Serial.println();
-    Serial.print("Received ");
-    Serial.print(roboBattery);
+    Serial.print("Battery= ");
+    Serial.println(roboBattery);
   }
 }

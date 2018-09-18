@@ -14,14 +14,35 @@
 #include <ArduinoJson.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include "GlobalDefinitions.h"
-#include "Tank_IO.h"
-
 #include <Wire.h>
 #include <SSD1306.h>
 
+#include "GlobalDefinitions.h"
+#include "Tank_IO.h"
+#define HasDisplay false
+
+#define WIFI_CHANNEL 1
+esp_now_peer_info_t master;
+const esp_now_peer_info_t *masterNode = &master;
+uint8_t masterDeviceMac[] = REMOTE_MAC; // Remote Control
+const byte maxDataFrameSize = 200;
+byte cnt = 0;
+
+uint8_t dataToSend[maxDataFrameSize];
+
+#if HasDisplay
+SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
+unsigned long  displayUpdate_ms = 50;
+unsigned long lastDisplay = 0;
+#endif 
+
+//Motor Stuff
 #define motor1Chan 0
 #define motor2Chan 1
+
+//Fake Battery discharge
+float battInitial = 4.2 * 3;//Typical 3Cell Lipo
+float battPerSec = -0.01;  //Discharge Rate
 
 int roboSpeed;
 int roboAngle;
@@ -29,24 +50,11 @@ int motor1speed = 0;
 int motor2speed = 0;
 int lastSpeed1, lastSpeed2;
 
-uint8_t masterDeviceMac[] = REMOTE_MAC; // Remote Control
-
-#define WIFI_CHANNEL 1
-
-esp_now_peer_info_t master;
-const esp_now_peer_info_t *masterNode = &master;
-const byte maxDataFrameSize = 200;
-uint8_t dataToSend[maxDataFrameSize];
-byte cnt = 0;
-esp_err_t sendResult;
-
-SSD1306 display(0x3c, OLED_SDA, OLED_SCL);
-unsigned long lastDisplay = 0;
-
 void setup()
 {
   Serial.begin(115200);
   Serial.print("\r\n\r\n");
+
   WiFi.mode(WIFI_AP_STA);
   Serial.println( WiFi.softAPmacAddress() );
   WiFi.disconnect();
@@ -63,8 +71,7 @@ void setup()
   memcpy( &master.peer_addr, &masterDeviceMac, 6 );
   master.channel = WIFI_CHANNEL;
   master.encrypt = 0;
-  master.ifidx = ESP_IF_WIFI_AP;
-  //Add the remote master node to this slave node
+  master.ifidx = ESP_IF_WIFI_AP;    //!TODO: Investigate
   if ( esp_now_add_peer(masterNode) == ESP_OK)
   {
     Serial.println("Added Master Node!");
@@ -76,131 +83,126 @@ void setup()
 
   esp_now_register_recv_cb(OnDataRecv);
   esp_now_register_send_cb(OnDataSent);
-}
 
-void loop()
-{
-  telemetry.batteryVoltage = 10.6;
-  //controll forward or backwardspeed speed
-  motor1speed = roboSpeed;
-  motor2speed = roboSpeed;
-
-  //ajusting to the angle
-  if (roboSpeed != 0) {
-    motor1speed = motor1speed + roboAngle;
-    motor2speed = motor2speed - roboAngle;
-  } else {
-    motor1speed = 0;
-    motor2speed = 0;
-  }
-
-  /*
-    Serial.print("lastSpeed1 ");
-    Serial.print(lastSpeed1 );
-    Serial.print(" lastSpeed2 ");
-    Serial.print(lastSpeed2 );
-    Serial.print(" motorSpeed1 ");
-    Serial.print( motor1speed);
-    Serial.print(" motorSpeed2 ");
-    Serial.println(motor2speed);
-  */
-  if (abs(lastSpeed1 - motor1speed) > 5 || abs(lastSpeed2 - motor2speed) > 5 ) setMotorSpeed(motor1speed, motor2speed);
-  lastSpeed1 = motor1speed;
-  lastSpeed2 = motor2speed;
-
-  if (millis() - lastDisplay > 50) {
- //   displaySpeedAngle();
-    lastDisplay = millis();
-  }
-  yield();
-}
-
-void setMotorSpeed(int speed1, int speed2) {
-  //check if signal has ecceeded the maximum speed and correct it if necessary
-  if (speed1 > 255) {
-    speed1 = 255;
-  }
-  else if (speed1 < -255) {
-    speed1 = -255;
-  }
-
-  if (speed2 > 255) {
-    speed2 = 255;
-  }
-  else if (speed2 < -255) {
-    speed2 = -255;
-  }
-
-  //create conrollsignals
-  if (speed1 == 0) {
-    digitalWrite(A1, LOW);
-    digitalWrite(B1, LOW);
-  }
-  else if (speed1 >= 0) {
-    digitalWrite(A1, HIGH);
-    digitalWrite(B1, LOW);
-  }
-  else {
-    digitalWrite(A1, LOW);
-    digitalWrite(B1, HIGH);
-  }
-
-  if (speed2 == 0) {
-    digitalWrite(A2, LOW);
-    digitalWrite(B2, LOW);
-  }
-  else if (speed2 >= 0) {
-    digitalWrite(A2, HIGH);
-    digitalWrite(B2, LOW);
-  }
-  else {
-    digitalWrite(A2, LOW);
-    digitalWrite(B2, HIGH);
-  }
-  ledcWrite(motor1Chan, abs(speed1));
-  ledcWrite(motor2Chan, abs(speed2));
-
-  Serial.print(" motorSpeed1 ");
-  Serial.print( motor1speed);
-  Serial.print(" motorSpeed2 ");
-  Serial.println(motor2speed);
-
-  Serial.print(" Speed1 ");
-  Serial.print( speed1);
-  Serial.print(" Speed2 ");
-  Serial.println(speed2);
 }
 
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
 {
-  uint8_t commandJSON[COMMANDLENGTH];
+  ReceiveMessage(data, data_len);
+  SendMessage();
+}
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+{
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? " Delivery Success" : " Delivery Fail");
+}
+
+void loop()
+{
+  telemetry.batteryVoltage = getBatteryVoltage();
+  //setMotorSpeed(roboSpeed, roboAngle);
+
+#if HasDisplay
+  if (millis() - lastDisplay > displayUpdate_ms) {
+    displayUpdate();
+    lastDisplay = millis();
+  }
+#endif
+
+  yield();  //!TODO: Is this needed?, Do we need to slow the loop?
+}
+
+#if HasDisplay
+void displayUpdate() {
+  display.clear();
+  display.drawString(0, 0, "Speed:");
+  display.drawString(0, 16, "Angle:");
+  display.drawString(55, 0, String(roboSpeed));
+  display.drawString(55, 16, String(roboAngle));
+  display.display();
+}
+#endif
+
+float getBatteryVoltage(){
+  return constrain(battInitial + (int)(millis()/1000)*battPerSec,0,battInitial);
+}
+
+void setMotorSpeed(int speed, int angle) {
+  //controll forward or backwardspeed speed
+  motor1speed = (int)( (float)roboSpeed * ( 1.0 + angle / 180.0 ) );
+  motor2speed = (int)( (float)roboSpeed * ( 1.0 - angle / 180.0 ) );
+
+  if (abs(lastSpeed1 - motor1speed) > 5 || abs(lastSpeed2 - motor2speed) > 5 )
+  {
+    int speed1 = constrain(motor1speed, -255, 255);
+    int speed2 = constrain(motor2speed, -255, 255);
+    digitalWrite(A1, (speed1 <= 0) ? LOW : HIGH);
+    digitalWrite(B1, (speed1 >= 0) ? LOW : HIGH);
+    digitalWrite(A2, (speed2 <= 0) ? LOW : HIGH);
+    digitalWrite(B2, (speed2 >= 0) ? LOW : HIGH);
+  
+    ledcWrite(motor1Chan, abs(speed1));
+    ledcWrite(motor2Chan, abs(speed2));
+
+    Serial.print(" motorSpeeds: ");
+    Serial.print( speed1);
+    Serial.print(" , ");
+    Serial.println(speed2);
+
+    lastSpeed1 = motor1speed;
+    lastSpeed2 = motor2speed;
+  }
+}
+
+void ReceiveMessage(const uint8_t *data, int data_len)
+{
+  Serial.print("Received ");
+  Serial.print(data_len);
+  Serial.print(" bytes:");
   char jsonChar[COMMANDLENGTH];
-
-  Serial.printf("\r\nReceived\t%d Bytes\t%d", data_len, data[0]);
+  jsonChar[COMMANDLENGTH-1]=0;
+  strncpy( jsonChar, (char*)data, COMMANDLENGTH-1 );
+  Serial.print(jsonChar);
+  Serial.print("\t");
+    
   StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
-  JsonObject& root = jsonBuffer.parseObject(data);
-
+  Serial.print("parseObject ");
+  JsonObject& root = jsonBuffer.parseObject(jsonChar);
   if (!root.success()) {
-    Serial.println("parseObject() failed");
+    Serial.println("failed!!!");
   } else {
+    Serial.println("parsed");
     roboSpeed = root["speed"];
     roboAngle = root["angle"];
-    Serial.println();
     Serial.print(roboSpeed);
     Serial.print(",");
     Serial.println(roboAngle);
-  }
+  } 
+}
 
+void SendMessage()
+{
+  char jsonChar[COMMANDLENGTH];
+  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
   root["battery"] = telemetry.batteryVoltage;
   root.printTo(jsonChar, COMMANDLENGTH);
-  root.printTo(Serial);
-  memcpy(commandJSON, jsonChar, sizeof(jsonChar));
 
+  // find length of JSON string being sent
   int JSONlen = 0;
-  while (commandJSON[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 1) JSONlen++; // find end of JSON string
-  Serial.println(JSONlen);
+  while (jsonChar[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 2) JSONlen++; 
+  JSONlen++;  //Account for starting at 0
+  jsonChar[JSONlen] = 0;
 
-  sendResult = esp_now_send(master.peer_addr, commandJSON, JSONlen + 1);
+  Serial.print("Sending ");
+  Serial.print(JSONlen);
+  Serial.print(" bytes:");
+  Serial.print(jsonChar);
+  Serial.print("\t");
+
+  uint8_t commandJSON[COMMANDLENGTH];
+  memcpy(commandJSON, jsonChar, JSONlen + 1);
+  esp_err_t sendResult = esp_now_send(master.peer_addr, commandJSON, JSONlen + 1);
   if (sendResult == ESP_OK) {
     Serial.println("Success");
   } else if (sendResult == ESP_ERR_ESPNOW_NOT_INIT) {
@@ -214,25 +216,9 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
     Serial.println("ESP_ERR_ESPNOW_NO_MEM");
   } else if (sendResult == ESP_ERR_ESPNOW_NOT_FOUND) {
     Serial.println("Peer not found.");
-  }
-  else if (sendResult == ESP_ERR_ESPNOW_IF) {
+  } else if (sendResult == ESP_ERR_ESPNOW_IF) {
     Serial.println("Interface Error.");
-  }   else {
-    Serial.printf("\r\nNot sure what happened\t%d", sendResult);
+  } else {
+    Serial.printf("Unknown Error: \t%d", sendResult);
   }
-}
-
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
-{
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.print(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
-
-void displaySpeedAngle() {
-  display.clear();
-  display.drawString(0, 0, "Speed:");
-  display.drawString(0, 16, "Angle:");
-  display.drawString(55, 0, String(roboSpeed));
-  display.drawString(55, 16, String(roboAngle));
-  display.display();
 }
