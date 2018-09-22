@@ -55,6 +55,19 @@ void setup()
   Serial.begin(115200);
   Serial.print("\r\n\r\n");
 
+  pinMode(pwm_motor1, OUTPUT);
+  pinMode(pwm_motor2, OUTPUT);
+  pinMode(A1, OUTPUT);
+  pinMode(A2, OUTPUT);
+  pinMode(B1, OUTPUT);
+  pinMode(B2, OUTPUT);
+
+  ledcSetup(motor1Chan, 1000, 8);
+  ledcAttachPin(pwm_motor1, motor1Chan);
+
+  ledcSetup(motor2Chan, 1000, 8);
+  ledcAttachPin(pwm_motor2, motor2Chan);
+  
   WiFi.mode(WIFI_AP_STA);
   Serial.println( WiFi.softAPmacAddress() );
   WiFi.disconnect();
