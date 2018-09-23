@@ -142,8 +142,8 @@ float getBatteryVoltage(){
 
 void setMotorSpeed(int speed, int angle) {
   //controll forward or backwardspeed speed
-  motor1speed = (int)( (float)roboSpeed * ( 1.0 + angle / 180.0 ) );
-  motor2speed = (int)( (float)roboSpeed * ( 1.0 - angle / 180.0 ) );
+  motor1speed = (int)( (float)roboSpeed * ( 1.0 + angle / 45.0 ) );
+  motor2speed = (int)( (float)roboSpeed * ( 1.0 - angle / 45.0 ) );
 
   if (abs(lastSpeed1 - motor1speed) > 5 || abs(lastSpeed2 - motor2speed) > 5 )
   {
