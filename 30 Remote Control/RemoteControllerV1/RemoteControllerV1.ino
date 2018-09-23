@@ -22,6 +22,7 @@ Further info is in the GitHub documentation.
 
 #include "GlobalDefinitions.h"
 #include "RC_IO.h"
+#include "JoystickClass.cpp"
 
 #include <EEPROM.h>
 
@@ -41,14 +42,11 @@ unsigned long  displayUpdate_ms = 50;
 #define EEPROM_SIZE 64
 #define MAGIC_NUMBER 12315
 
+Joystick drive_stick(JS1_VX, JS1_VY);
+
 struct calibrationStruct {
   int magicNumber = MAGIC_NUMBER;//'Magic Number - To check to see if the calibration has been performed'
-  int xmax = 0;
-  int xmin = 511;
-  int xzero;
-  int ymax = 0;
-  int ymin = 511;
-  int yzero;
+  StickCalibration drive_stick_cal;
 };
 calibrationStruct calibration;
 
@@ -60,151 +58,6 @@ unsigned long lastSend = 0;
 unsigned long pressStart = 0;
 
 float roboBattery;
-
-void readJoyStick() {
-  int rawSpeed = analogRead(JS1_VY);
-  int rawAngle = analogRead(JS1_VX);
-
-  if (rawSpeed < calibration.yzero - 5) {
-    roboSpeed = map(rawSpeed, calibration.ymin, calibration.yzero, -255, 0);
-  } else if (rawSpeed > calibration.yzero - 5 && rawSpeed < calibration.yzero + 5) {
-    roboSpeed = 0;
-  } else if (rawSpeed > calibration.yzero + 5) {
-    roboSpeed = map(rawSpeed, calibration.yzero, calibration.ymax, 0, 255);
-  }
-
-  if (rawAngle < calibration.xzero - 5) {
-    roboAngle = map(rawAngle, calibration.xmin, calibration.xzero, -180, 0);
-  } else if (rawAngle > calibration.xzero - 5 && rawAngle < calibration.xzero + 5) {
-    roboAngle = 0;
-  } else if (rawAngle > calibration.xzero + 5) {
-    roboAngle = map(rawAngle, calibration.xzero, calibration.xmax, 0, 180);
-  }
-
-  command.speed = roboSpeed;
-  command.angle = roboAngle;
-  /* Serial.print(command.speed);
-    Serial.print(",");
-    Serial.println(command.angle);
-  */
-}
-
-void calibrateJoystick() {
-  calibrationStruct recalibration; //Create new struct variable, otherwise input validation won't work.
-  display.clear();
-  display.drawString(0, 0, "Starting \nCalibration!");
-  display.display();
-  delay(500);
-  display.clear();
-  display.drawString(0, 0, "Move Joystick\nthrough outermost\ncircle!");
-  display.display();
-  unsigned long start = millis();
-  int y;
-  int x;
-
-  //Values for calibration sucess check
-  int xInit = analogRead(JS1_VX);
-  int yInit = analogRead(JS1_VY);
- 
-  while(millis() - start < 5000){
-    y = analogRead(JS1_VY);
-    x = analogRead(JS1_VX);
-
-    y > recalibration.ymax ? recalibration.ymax = y : recalibration.ymax;
-    y < recalibration.ymin ? recalibration.ymin = y : recalibration.ymin;
-
-    x > recalibration.xmax ? recalibration.xmax = x : recalibration.xmax;
-    x < recalibration.xmin ? recalibration.xmin = x : recalibration.xmin;
-  }
-
-
-  //Check for success
-  if (recalibration.xmax - xInit > 110 && xInit - recalibration.xmin > 110 && recalibration.ymax - yInit > 110 && yInit - recalibration.ymin > 110) {
-    display.clear();
-    display.drawString(0, 0, "Release Joystick\nand WAIT!");
-    display.display();
-    delay(4000);
-    recalibration.xzero = analogRead(JS1_VX);
-    recalibration.yzero = analogRead(JS1_VY);
-    display.clear();
-    display.drawString(0, 0, "Calibration\nDONE!");
-    display.display();
-
-    Serial.print("XMAX:"); Serial.println(recalibration.xmax);
-    Serial.print("XMIN:"); Serial.println(recalibration.xmin);
-    Serial.print("YMAX:"); Serial.println(recalibration.ymax);
-    Serial.print("YMIN:"); Serial.println(recalibration.ymin);
-    Serial.print("XZERO:"); Serial.println(recalibration.xzero);
-    Serial.print("YZERO:"); Serial.println(recalibration.yzero);
-
-    EEPROM.put(0, recalibration);
-
-    delay(1000);
-  } else {
-    display.clear();
-    display.drawString(0, 0, "Calibration\nfailed. Trying\nagain.");
-    display.display();
-    delay(1000);
-    calibrateJoystick();
-  }
-  calibration = recalibration;
-  EEPROM.commit();
-}
-
-void displayUpdate() {
-  display.clear();
-  display.drawString(0, 0, "Speed:");
-  display.drawString(0, 16, "Angle:");
-  display.drawString(0, 32, "Battery:");
-  
-  display.drawString(55, 0, String(roboSpeed));
-  display.drawString(55, 16, String(roboAngle));
-  display.drawString(55, 32, String(roboBattery));
-  display.display();
-}
-
-void sendData(byte *peer_addr) {
-  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
-  JsonObject& root = jsonBuffer.createObject();
-
-  root["speed"] = command.speed;
-  root["angle"] = command.angle;
-  char jsonChar[COMMANDLENGTH];
-  root.printTo(jsonChar, COMMANDLENGTH);
-
-  // find length of JSON string being sent
-  int JSONlen = 0;
-  while (jsonChar[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 2) JSONlen++; 
-  JSONlen++;  //Account for starting at 0
-  jsonChar[JSONlen] = 0;
-
-  Serial.print("Sending ");
-  Serial.print(JSONlen);
-  Serial.print(" bytes:");
-  Serial.print(jsonChar);
-  Serial.print("\t");
-
-  uint8_t commandJSON[COMMANDLENGTH];
-  memcpy(commandJSON, jsonChar, JSONlen + 1);
-  esp_err_t result = esp_now_send(peer_addr, commandJSON, JSONlen + 1);
-  if (result == ESP_OK) {
-    //   Serial.println("Success");
-  } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
-    // How did we get so far!!
-    Serial.println("ESPNOW not Init.");
-  } else if (result == ESP_ERR_ESPNOW_ARG) {
-    Serial.println("Invalid Argument");
-  } else if (result == ESP_ERR_ESPNOW_INTERNAL) {
-    Serial.println("Internal Error");
-  } else if (result == ESP_ERR_ESPNOW_NO_MEM) {
-    Serial.println("ESP_ERR_ESPNOW_NO_MEM");
-  } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
-    Serial.println("Peer not found.");
-  } else {
-    Serial.printf("Unknown Error: \t%d", result);
-  }
-  delay(50);
-}
 
 void setup()
 {
@@ -265,6 +118,8 @@ void setup()
     display.display();
     display.setTextAlignment(TEXT_ALIGN_LEFT);
   }
+
+  drive_stick.setCalibration( calibration.drive_stick_cal );
 }
 
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len)
@@ -279,7 +134,11 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 
 void loop()
 {
-  readJoyStick();
+  drive_stick.update();
+
+  roboSpeed = constrain ( sqrt( sq((float)drive_stick.getXConvertedValue()) + sq((float)drive_stick.getYConvertedValue()) ) * ( drive_stick.getYConvertedValue()>0 ? 1 : -1 ), -510, 510) / 2;
+  roboAngle = map(drive_stick.getXConvertedValue(),drive_stick.minPositionValue, drive_stick.maxPositionValue, -90, 90);  //Arduino doesn't have inverse trig
+
   if (!digitalRead(RECALIBRATION_PIN)) {    //! can you change pin polarity to make this clearer?
     bool pressed = true;
     pressStart = millis();
@@ -297,6 +156,7 @@ void loop()
       calibrateJoystick();
     }
   }
+  
   if (millis() - lastDisplay > displayUpdate_ms) {
     displayUpdate();
     lastDisplay = millis();
@@ -305,6 +165,99 @@ void loop()
     sendData(slave.peer_addr);
     lastSend = millis();
   }
+}
+
+void calibrateJoystick() {
+  calibrationStruct recalibration; //Create new struct variable, otherwise input validation won't work.
+  display.clear();
+  display.drawString(0, 0, "Starting \nCalibration!");
+  display.display();
+  delay(500);
+  display.clear();
+  display.drawString(0, 0, "Move Joystick\nthrough outermost\ncircle!");
+  display.display();
+
+  drive_stick.calibrateJoystickEdges();
+  
+  display.clear();
+  display.drawString(0, 0, "Release Joystick\nand WAIT!");
+  display.display();
+  delay(4000);
+  
+  drive_stick.calibrateJoystickNeutral();
+
+  display.clear();
+  display.drawString(0, 0, "Calibration\nDONE!");
+  display.display();
+
+  recalibration.drive_stick_cal = drive_stick.getCalibration();
+
+  Serial.print("XMAX:"); Serial.println(recalibration.drive_stick_cal.xMax);
+  Serial.print("XMIN:"); Serial.println(recalibration.drive_stick_cal.xMin);
+  Serial.print("YMAX:"); Serial.println(recalibration.drive_stick_cal.yMax);
+  Serial.print("YMIN:"); Serial.println(recalibration.drive_stick_cal.yMin);
+  Serial.print("XZERO:"); Serial.println(recalibration.drive_stick_cal.xZero);
+  Serial.print("YZERO:"); Serial.println(recalibration.drive_stick_cal.yZero);
+
+  EEPROM.put(0, recalibration);
+
+  calibration = recalibration;
+  EEPROM.commit();
+}
+
+void displayUpdate() {
+  display.clear();
+  display.drawString(0, 0, "Speed:");
+  display.drawString(0, 16, "Angle:");
+  display.drawString(0, 32, "Battery:");
+  
+  display.drawString(55, 0, String(roboSpeed));
+  display.drawString(55, 16, String(roboAngle));
+  display.drawString(55, 32, String(roboBattery));
+  display.display();
+}
+
+void sendData(byte *peer_addr) {
+  StaticJsonBuffer<COMMANDLENGTH> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+
+  root["speed"] = roboSpeed;
+  root["angle"] = roboAngle;
+  char jsonChar[COMMANDLENGTH];
+  root.printTo(jsonChar, COMMANDLENGTH);
+
+  // find length of JSON string being sent
+  int JSONlen = 0;
+  while (jsonChar[JSONlen] != '}' && JSONlen < COMMANDLENGTH - 2) JSONlen++; 
+  JSONlen++;  //Account for starting at 0
+  jsonChar[JSONlen] = 0;
+
+  Serial.print("Sending ");
+  Serial.print(JSONlen);
+  Serial.print(" bytes:");
+  Serial.print(jsonChar);
+  Serial.print("\t");
+
+  uint8_t commandJSON[COMMANDLENGTH];
+  memcpy(commandJSON, jsonChar, JSONlen + 1);
+  esp_err_t result = esp_now_send(peer_addr, commandJSON, JSONlen + 1);
+  if (result == ESP_OK) {
+    //   Serial.println("Success");
+  } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
+    // How did we get so far!!
+    Serial.println("ESPNOW not Init.");
+  } else if (result == ESP_ERR_ESPNOW_ARG) {
+    Serial.println("Invalid Argument");
+  } else if (result == ESP_ERR_ESPNOW_INTERNAL) {
+    Serial.println("Internal Error");
+  } else if (result == ESP_ERR_ESPNOW_NO_MEM) {
+    Serial.println("ESP_ERR_ESPNOW_NO_MEM");
+  } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
+    Serial.println("Peer not found.");
+  } else {
+    Serial.printf("Unknown Error: \t%d", result);
+  }
+  delay(50);
 }
 
 void ReceiveMessage(const uint8_t *data, int data_len)
